@@ -114,6 +114,7 @@ class Settings:
     ai_read_timeout: float
     ai_readme_chars: int
     ai_max_tokens: int
+    ai_endpoint_file: str
     # Storage (the single JSON document)
     storage_backend: str
     data_file: Path
@@ -180,6 +181,7 @@ def _load() -> Settings:
         ai_read_timeout=_float("AI_READ_TIMEOUT", 50.0 if on_vercel else 150.0),
         ai_readme_chars=max(1000, _int("AI_README_CHARS", 6000)),
         ai_max_tokens=max(300, _int("AI_MAX_TOKENS", 1100)),
+        ai_endpoint_file=_env("AI_ENDPOINT_FILE", "ai-endpoint.json"),
         storage_backend=_env("STORAGE_BACKEND", "local").lower(),
         data_file=data_file,
         gist_id=_env("GIST_ID"),

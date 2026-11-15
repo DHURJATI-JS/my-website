@@ -173,6 +173,9 @@ class GistBackend:
         self.token = token
         self.filename = filename
         self.seed = seed
+        # Other small files in the same Gist (e.g. ai-endpoint.json written by
+        # scripts/start-tunnel.ps1). Refreshed on every read of the Gist.
+        self.extras: dict[str, str] = {}
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -195,7 +198,13 @@ class GistBackend:
             raise StoreError(f"Gist unreachable: {exc}") from exc
         if resp.status != 200:
             raise StoreError(f"Gist read failed (HTTP {resp.status})")
-        file = (resp.json().get("files") or {}).get(self.filename)
+        files = resp.json().get("files") or {}
+        self.extras = {
+            name: f.get("content") or ""
+            for name, f in files.items()
+            if name != self.filename and isinstance(f, dict) and not f.get("truncated")
+        }
+        file = files.get(self.filename)
         if not file:
             return self.seed.read()  # first run: start from the bundled JSON
         if file.get("truncated") and file.get("raw_url"):
@@ -275,6 +284,11 @@ class Store:
             self._checked = time.monotonic()
             self.revision += 1
             return result
+
+    def extra_file(self, name: str) -> str:
+        """Content of another small file in the Gist ('' for the local backend)."""
+        self.get()  # refreshes the Gist (and its extra files) at most every `interval` s
+        return getattr(self.backend, "extras", {}).get(name, "")
 
     def describe(self) -> dict[str, Any]:
         info = self.backend.describe()

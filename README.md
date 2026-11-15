@@ -135,6 +135,29 @@ data/portfolio.json     THE data file (commit it)
 scripts/                sync.py (CLI), build_icons.py, hash_password.py, start-fallback-ai.ps1
 ```
 
+## Auto-update on Vercel with a free Cloudflare tunnel
+
+Vercel can't reach your LAN gateway (`192.168.0.226`), so a free **Cloudflare quick tunnel** gives it a
+public `https://xxxx.trycloudflare.com` address. That address changes every time the tunnel restarts,
+so the tunnel script writes the current one into the data Gist and the site reads it from there.
+
+1. **Token:** GitHub → Settings → Developer settings → *Fine-grained tokens* → Generate:
+   *Public repositories* (read-only) + Account permission **Gists: Read and write**. Put it in `.env` as `GITHUB_TOKEN`.
+2. **Gist + Vercel variables:** `python scripts/setup_gist.py --vercel-env https://<your-site>.vercel.app`
+   creates a secret Gist with `data/portfolio.json`, saves `GIST_ID` to `.env` and writes `.env.vercel`.
+   Paste `.env.vercel` into Vercel → *Settings → Environment Variables* (paste into the Key field to import all),
+   redeploy, then delete `.env.vercel`.
+3. **Tunnel (on a PC on the same network as the gateway):**
+   `winget install --id Cloudflare.cloudflared`, then
+   `powershell -ExecutionPolicy Bypass -File scripts\install-tunnel-task.ps1` — starts
+   `scripts\start-tunnel.ps1` now and at every logon. It restarts cloudflared if it stops, republishes the new URL,
+   and asks the site to sync + categorise **new** repos every `AUTO_SYNC_MINUTES` (Vercel's own cron also runs daily).
+   Log: `%LOCALAPPDATA%\portfolio-tunnel\tunnel.log`. Remove with `install-tunnel-task.ps1 -Remove`.
+
+Quick tunnels are meant for testing (no uptime guarantee, ~200 requests in flight). The AI only works while that
+PC and the gateway are on; otherwise new repos show a keyword preview and get categorised on the next run.
+Set a real `AI_PRIMARY_KEY` on your gateway — the tunnel URL is public.
+
 ## Customising
 * **Languages:** English, हिन्दी, मराठी, Español, Français, Deutsch, 日本語 — edit/add in `portfolio/i18n.py`.
 * **Icons:** add a Line Awesome name to `scripts/build_icons.py` and re-run it; 3D icons come from

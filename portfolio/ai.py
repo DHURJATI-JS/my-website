@@ -1,7 +1,9 @@
 """AI repo analyst: reads a README, picks the group and writes the summary.
 
 Provider chain (both are OpenAI-compatible /v1/chat/completions endpoints):
-  1. gateway - your LAN gateway  (AI_PRIMARY_URL,  model "gemma")
+  1. gateway - your LAN gateway  (AI_PRIMARY_URL,  model "gemma"). On Vercel the
+     current public Cloudflare quick-tunnel URL is read from the data Gist
+     (file AI_ENDPOINT_FILE, written by scripts/start-tunnel.ps1) instead.
   2. local   - Docker Gemma 3 12B via Ollama (AI_FALLBACK_URL, "gemma3:12b")
 If both are down, the site shows a keyword-based *preview* (never saved), so
 the repo is still treated as "new" and the AI analyses it on the next run.
@@ -33,9 +35,35 @@ class Provider:
     model: str
 
 
+def published_gateway_url() -> str:
+    """The gateway's public tunnel URL published in the data Gist ('' if none).
+
+    scripts/start-tunnel.ps1 runs a Cloudflare quick tunnel on the home PC and
+    writes {"url": "https://<random>.trycloudflare.com/v1", ...} to the Gist
+    every time the tunnel (and so its random URL) restarts.
+    """
+    name = settings.ai_endpoint_file
+    if not name or settings.storage_backend != "gist":
+        return ""
+    try:
+        from .store import store  # local import: store must not import ai
+
+        raw = store.extra_file(name)
+        data = json.loads(raw) if raw else {}
+    except Exception:  # noqa: BLE001 - never let this break the site
+        return ""
+    url = str(data.get("url") or "").strip().rstrip("/") if isinstance(data, dict) else ""
+    return url if url.startswith("https://") else ""
+
+
 def providers() -> list[Provider]:
     chain = []
-    if settings.ai_primary_url:
+    # On Vercel the LAN address is unreachable, so prefer the published tunnel URL.
+    tunnel_url = published_gateway_url() if (settings.on_vercel or not settings.ai_primary_url) else ""
+    if tunnel_url:
+        chain.append(Provider("gateway", "OpenAI gateway (Cloudflare tunnel)", tunnel_url,
+                              settings.ai_primary_key, settings.ai_primary_model))
+    elif settings.ai_primary_url:
         chain.append(Provider("gateway", "OpenAI gateway", settings.ai_primary_url,
                               settings.ai_primary_key, settings.ai_primary_model))
     if settings.ai_fallback_url:
