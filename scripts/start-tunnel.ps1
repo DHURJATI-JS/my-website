@@ -1,7 +1,8 @@
 # Exposes your AI gateway to Vercel with a FREE Cloudflare quick tunnel (no account, no domain)
 # and keeps the site pointed at it, even though the trycloudflare.com URL changes on every restart.
 #
-#   1. starts:  cloudflared tunnel --url <your gateway, from AI_PRIMARY_URL in .env>
+#   1. starts:  cloudflared tunnel --url <your gateway, from AI_PRIMARY_URL in .env,
+#               e.g. http://127.0.0.1:8000/v1 when the gateway runs on this PC>
 #   2. reads the random https://xxxx.trycloudflare.com address it prints
 #   3. writes it to the data Gist (file ai-endpoint.json) - Vercel picks it up within ~20 s
 #   4. every AUTO_SYNC_MINUTES asks the live site to sync GitHub + AI-categorise NEW repos
@@ -115,10 +116,22 @@ function Read-Shared([string]$path) {
     } catch { return "" }
 }
 
-# A previous run that died may have left its cloudflared behind - stop it.
+# A previous run (maybe pointing at another address) may have left its cloudflared behind - stop it.
 Get-CimInstance Win32_Process -Filter "Name='cloudflared.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like "*--url $Origin*" } |
+    Where-Object { $_.CommandLine -like "*portfolio-tunnel*" -or $_.CommandLine -like "*--url $Origin*" } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
+function Wait-Origin([int]$seconds) {
+    # True once something answers on the gateway's port (it may start after the tunnel at boot).
+    $u = [Uri]$Origin
+    $deadline = (Get-Date).AddSeconds($seconds)
+    do {
+        $c = New-Object Net.Sockets.TcpClient
+        try { if ($c.ConnectAsync($u.Host, $u.Port).Wait(1000) -and $c.Connected) { return $true } } catch {} finally { $c.Close() }
+        if ($seconds -gt 1) { Start-Sleep -Seconds 5 }
+    } while ((Get-Date) -lt $deadline)
+    return $false
+}
 
 Log "Gateway: $Origin  ->  Cloudflare quick tunnel (gist $($gistId.Substring(0, [Math]::Min(7, $gistId.Length)))..., file $endpointFile)"
 $backoff = 5
@@ -147,11 +160,14 @@ while ($true) {
             Log "Could not write the Gist: $($_.Exception.Message)"
         }
         Start-Sleep -Seconds 30          # let Vercel re-read the Gist (it checks every 20 s)
-        Invoke-SiteSync
+        if (Wait-Origin 900) { Invoke-SiteSync } else { Log "Gateway $Origin not up after 15 min - skipping this sync" }
         $nextSync = (Get-Date).AddMinutes($syncMinutes)
         while (-not $proc.HasExited) {
             Start-Sleep -Seconds 15
-            if ((Get-Date) -ge $nextSync) { Invoke-SiteSync; $nextSync = (Get-Date).AddMinutes($syncMinutes) }
+            if ((Get-Date) -ge $nextSync) {
+                if (Wait-Origin 1) { Invoke-SiteSync } else { Log "Gateway $Origin is down - skipping this sync" }
+                $nextSync = (Get-Date).AddMinutes($syncMinutes)
+            }
         }
         Log "cloudflared exited (code $($proc.ExitCode)) - restarting"
     } else {
