@@ -147,10 +147,10 @@ so the tunnel script writes the current one into the data Gist and the site read
    creates a secret Gist with `data/portfolio.json`, saves `GIST_ID` to `.env` and writes `.env.vercel`.
    Paste `.env.vercel` into Vercel → *Settings → Environment Variables* (paste into the Key field to import all),
    redeploy, then delete `.env.vercel`.
-3. **Tunnel (on a PC on the same network as the gateway):**
-   `winget install --id Cloudflare.cloudflared`, then
-   `powershell -ExecutionPolicy Bypass -File scripts\install-tunnel-task.ps1` — starts
-   `scripts\start-tunnel.ps1` now and at every logon. It restarts cloudflared if it stops, republishes the new URL,
+3. **Tunnel (on a PC on the same network as the gateway):** double-click `scripts\setup-tunnel.cmd`
+   (or `winget install --id Cloudflare.cloudflared`, then
+   `powershell -ExecutionPolicy Bypass -File scripts\install-tunnel-task.ps1`). It starts
+   `scripts\start-tunnel.ps1` now and at every logon: it restarts cloudflared if it stops, republishes the new URL,
    and asks the site to sync + categorise **new** repos every `AUTO_SYNC_MINUTES` (Vercel's own cron also runs daily).
    Log: `%LOCALAPPDATA%\portfolio-tunnel\tunnel.log`. Remove with `install-tunnel-task.ps1 -Remove`.
 
