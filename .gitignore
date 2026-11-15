@@ -1,0 +1,9 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.env
+.vercel/
+*.log
+.DS_Store
+# data/portfolio.json is intentionally NOT ignored: it is the site's single source of truth.

@@ -1,0 +1,11 @@
+# NVIDIA GPU override for the failsafe Gemma 3 12B container:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}{{ t('issues_title') }} · {{ me.name }}{% endblock %}
+{% block description %}{{ t('issues_sub') }}{% endblock %}
+
+{% block content %}
+<section class="page-hero">
+  <div class="container">
+    <header class="section-head reveal">
+      <img class="section-icon" src="{{ i8('bug') }}" alt="" width="64" height="64" decoding="async">
+      <div>
+        <h1 class="section-title">{{ t('issues_title') }}</h1>
+        <p class="section-sub">{{ t('issues_sub') }}</p>
+      </div>
+    </header>
+
+    <div class="toolbar glass reveal">
+      <nav class="seg seg-static" aria-label="{{ t('issues_title') }}">
+        {% for s in ['open', 'closed', 'all'] %}
+        <a class="seg-btn{% if state == s %} is-active{% endif %}" href="{{ link('/issues?state=' ~ s ~ ('&repo=' ~ repo|urlencode if repo else '')) }}"{% if state == s %} aria-current="page"{% endif %}>
+          {{ icon('dot-circle' if s == 'open' else ('check-circle' if s == 'closed' else 'layer-group')) }}<span>{{ t('issues_' ~ s) }}</span><b>{{ counts[s] }}</b>
+        </a>
+        {% endfor %}
+      </nav>
+      {% if repos %}
+      <form class="sort-box" method="get" action="/issues">
+        <input type="hidden" name="state" value="{{ state }}">
+        {% if request.query_params.get('lang') %}<input type="hidden" name="lang" value="{{ lang }}">{% endif %}
+        {{ icon('github') }}
+        <label class="visually-hidden" for="repoSelect">{{ t('filter_repo') }}</label>
+        <select name="repo" id="repoSelect" data-autosubmit>
+          <option value="">{{ t('issues_all_repos') }}</option>
+          {% for name in repos %}<option value="{{ name }}"{% if name|lower == repo|lower %} selected{% endif %}>{{ name }}</option>{% endfor %}
+        </select>
+        <noscript><button type="submit" class="btn-glass btn-sm">OK</button></noscript>
+      </form>
+      {% endif %}
+    </div>
+
+    {% for g in groups %}
+    <div class="issue-group glass reveal">
+      <div class="issue-group-head">
+        <h2><a href="{{ g.url }}/issues" target="_blank" rel="noopener">{{ icon('github') }}<span>{{ g.title }}</span></a></h2>
+        <span class="group-count">{{ g.issues|length }}</span>
+      </div>
+      <ul class="issue-list">
+        {% for i in g.issues %}
+        <li class="issue-row">
+          <span class="issue-state is-{{ i.state }}" title="{{ t('issues_' ~ i.state) }}">{{ icon('dot-circle' if i.state == 'open' else 'check-circle') }}</span>
+          <div class="issue-main">
+            <button type="button" class="issue-open" data-issue="{{ i.tid }}">{{ i.title }}</button>
+            <div class="issue-meta">
+              <span>#{{ i.number }}</span>
+              <span>{{ t('issues_opened_by', user=i.user) }}</span>
+              {% if i.created_at %}<time class="rel" datetime="{{ i.created_at }}">{{ i.created_at[:10] }}</time>{% endif %}
+              {% if i.comments %}<span>{{ icon('comment') }}{{ i.comments }}</span>{% endif %}
+              {% for l in i.labels %}<span class="gh-label"{% if l.color %} data-color="{{ l.color }}"{% endif %}>{{ l.name }}</span>{% endfor %}
+            </div>
+          </div>
+        </li>
+        <template id="itpl-{{ i.tid }}" data-title="{{ i.title }}" data-url="{{ i.url }}" data-ref="{{ i.repo }} #{{ i.number }}">
+          <div class="m-chips">
+            <span class="cat-chip"><span class="issue-state-inline is-{{ i.state }}">{{ icon('dot-circle' if i.state == 'open' else 'check-circle') }}</span>{{ t('issues_' ~ i.state) }}</span>
+            <span class="feat-chip">{{ t('issues_opened_by', user=i.user) }}</span>
+            {% if i.created_at %}<span class="feat-chip">{{ icon('clock') }}<time class="rel" datetime="{{ i.created_at }}">{{ i.created_at[:10] }}</time></span>{% endif %}
+            {% for l in i.labels %}<span class="gh-label"{% if l.color %} data-color="{{ l.color }}"{% endif %}>{{ l.name }}</span>{% endfor %}
+          </div>
+          <div class="markdown-body">{% if i.body_html %}{{ i.body_html|safe }}{% else %}<p class="readme-empty">—</p>{% endif %}</div>
+        </template>
+        {% endfor %}
+      </ul>
+    </div>
+    {% else %}
+    <div class="empty-big glass reveal">
+      <img src="{{ i8('approval') }}" alt="" width="96" height="96" decoding="async">
+      <p>{{ t('issues_none') }}</p>
+      <a class="btn-glass" href="{{ link('/') }}" data-mdb-ripple-init>{{ icon('home') }}<span>{{ t('back_home') }}</span></a>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
+
+{% block modals %}
+<div class="modal fade" id="issueModal" tabindex="-1" aria-labelledby="issueModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-md-down">
+    <div class="modal-content glass-modal">
+      <div class="modal-header">
+        <div class="m-head">
+          <h2 class="modal-title" id="issueModalTitle"></h2>
+          <span class="m-repo" id="issueModalRef"></span>
+        </div>
+        <button type="button" class="x-btn" data-mdb-dismiss="modal" aria-label="{{ t('close') }}">{{ icon('times') }}</button>
+      </div>
+      <div class="modal-body" id="issueModalBody"></div>
+      <div class="modal-footer">
+        <a class="btn-glow btn-sm" id="issueModalLink" href="#" target="_blank" rel="noopener">{{ icon('github') }}<span>{{ t('view_github') }}</span></a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

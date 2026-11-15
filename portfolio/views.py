@@ -1,0 +1,322 @@
+"""Turn the JSON document into small view models (cached per JSON revision)."""
+from __future__ import annotations
+
+import re
+from datetime import date
+from typing import Any
+
+from . import ai
+from .config import settings
+from .github import safe_url
+from .store import store
+
+GROUP_ICONS = {"social": "handshake", "industry": "rocket"}
+_SMALL_WORDS = {"and", "or", "of", "the", "a", "an", "for", "from", "to", "in", "on", "with", "by"}
+_ACRONYMS = {"ai": "AI", "mvp": "MVP", "api": "API", "ui": "UI", "ux": "UX", "ml": "ML", "llm": "LLM",
+             "hr": "HR", "crm": "CRM", "erp": "ERP", "sql": "SQL", "iot": "IoT", "ar": "AR", "vr": "VR",
+             "js": "JS", "yt": "YT", "pdf": "PDF", "ocr": "OCR", "gpt": "GPT"}
+_EVENT_ICONS = {"push": "code-branch", "create_repo": "plus", "create_ref": "plus", "star": "star",
+                "fork": "code-branch", "issue": "dot-circle", "pr": "code-branch", "comment": "comment",
+                "release": "tag", "public": "globe", "other": "bolt"}
+
+
+def pretty_title(name: str) -> str:
+    words = [w for w in re.split(r"[-_\s]+", name.strip()) if w]
+    out = []
+    for index, word in enumerate(words):
+        lower = word.lower()
+        if lower in _ACRONYMS:
+            out.append(_ACRONYMS[lower])
+        elif word != lower:
+            out.append(word)  # keep CamelCase like IronPulse / AuraMind
+        elif index and lower in _SMALL_WORDS:
+            out.append(lower)
+        else:
+            out.append(lower[:1].upper() + lower[1:])
+    return " ".join(out) or name
+
+
+def slug(name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_-]", "-", name)
+
+
+def lang_slug(language: str) -> str:
+    text = (language or "").lower().replace("+", "p").replace("#", "sharp")
+    return re.sub(r"[^a-z0-9]+", "-", text).strip("-")
+
+
+def compute_age(profile: dict[str, Any]) -> int | None:
+    born = str(profile.get("birth_date") or "")
+    if born:
+        try:
+            d = date.fromisoformat(born)
+            today = date.today()
+            return today.year - d.year - ((today.month, today.day) < (d.month, d.day))
+        except ValueError:
+            pass
+    age = str(profile.get("age") or "").strip()
+    return int(age) if age.isdigit() and 0 < int(age) < 130 else None
+
+
+_SOCIAL_BASES = {
+    "linkedin": "https://www.linkedin.com/in/{}",
+    "twitter": "https://x.com/{}",
+    "instagram": "https://www.instagram.com/{}",
+    "youtube": "https://www.youtube.com/@{}",
+}
+
+
+def social_url(kind: str, value: str) -> str:
+    value = (value or "").strip()
+    if not value:
+        return ""
+    if re.match(r"^https?://", value, re.I) or "." in value.split("/")[0]:
+        return safe_url(value)
+    handle = value.lstrip("@").strip("/")
+    if re.fullmatch(r"[A-Za-z0-9_.-]{1,60}", handle) and kind in _SOCIAL_BASES:
+        return _SOCIAL_BASES[kind].format(handle)
+    return ""
+
+
+def identity(doc: dict[str, Any]) -> dict[str, Any]:
+    profile = doc["profile"]
+    user = doc["github"].get("user") or {}
+    username = settings.github_username
+    name = profile.get("name") or user.get("name") or user.get("login") or username
+    whatsapp = profile.get("whatsapp") or settings.contact_whatsapp
+    digits = re.sub(r"\D", "", whatsapp)
+    socials = [{"key": "github", "icon": "github", "label": "GitHub", "url": f"https://github.com/{username}"}]
+    for key, icon, label in (("linkedin", "linkedin", "LinkedIn"), ("twitter", "twitter", "X / Twitter"),
+                             ("instagram", "instagram", "Instagram"), ("youtube", "youtube", "YouTube")):
+        url = social_url(key, profile.get(key, ""))
+        if url:
+            socials.append({"key": key, "icon": icon, "label": label, "url": url})
+    for key, icon, label in (("website", "globe", "Website"), ("resume_url", "file", "Resume")):
+        url = safe_url(profile.get(key))
+        if url:
+            socials.append({"key": key, "icon": icon, "label": label, "url": url})
+    return {
+        "name": name,
+        "first_name": name.split()[0] if name else username,
+        "avatar": safe_url(profile.get("avatar_url")) or user.get("avatar_url")
+        or f"https://github.com/{username}.png",
+        "email": profile.get("email") or settings.contact_email,
+        "whatsapp": whatsapp,
+        "wa_link": f"https://wa.me/{digits}" if digits else "",
+        "github_url": f"https://github.com/{username}",
+        "feed_url": f"https://github.com/{username}.atom",
+        "username": username,
+        "socials": socials,
+    }
+
+
+# ------------------------------------------------------------------ projects --
+_heuristic_cache: dict[tuple, dict[str, Any]] = {}
+_cards_cache: dict[str, Any] = {"rev": None, "cards": []}
+
+
+def _analysis(key: str, entry: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    current = entry.get("ai")
+    if current:
+        return current, "manual" if current.get("manual") else "ai"
+    cache_key = (key, entry.get("readme_sha"), entry.get("description"))
+    if cache_key not in _heuristic_cache:
+        _heuristic_cache[cache_key] = ai.heuristic(entry)
+    return _heuristic_cache[cache_key], "pending"
+
+
+def visible_entries(doc: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    prefs = doc["settings"]
+    hidden = {n.lower() for n in prefs.get("hidden", [])}
+    include_forks = bool(prefs.get("include_forks"))
+    return [
+        (key, entry) for key, entry in doc["repos"].items()
+        if not entry.get("gone") and entry.get("name", "").lower() not in hidden
+        and (include_forks or not entry.get("fork"))
+    ]
+
+
+def project_cards() -> list[dict[str, Any]]:
+    doc = store.get()
+    if _cards_cache["rev"] == store.revision:
+        return _cards_cache["cards"]
+    featured = [n.lower() for n in doc["settings"].get("featured", [])]
+    open_issues: dict[str, int] = {}
+    for issue in doc["github"].get("issues") or []:
+        if issue.get("state") == "open":
+            open_issues[issue["repo"].lower()] = open_issues.get(issue["repo"].lower(), 0) + 1
+    cards = []
+    for key, entry in visible_entries(doc):
+        analysis, status = _analysis(key, entry)
+        name = entry["name"]
+        tech = list(analysis.get("tech_stack") or ([entry["language"]] if entry.get("language") else []))
+        title = analysis.get("title") or pretty_title(name)
+        summary = analysis.get("summary") or entry.get("description") or ""
+        confidence = analysis.get("confidence")
+        card = {
+            "key": key, "name": name, "slug": slug(name), "title": title,
+            "description": entry.get("description", ""), "summary": summary,
+            "problem": analysis.get("problem", ""), "key_points": analysis.get("key_points") or [],
+            "reason": analysis.get("reason", ""), "audience": analysis.get("audience", ""),
+            "tech": tech, "category": analysis.get("category", "industry"), "status": status,
+            "provider": analysis.get("provider", ""), "model": analysis.get("model", ""),
+            "confidence": int(round(confidence * 100)) if isinstance(confidence, (int, float)) and status != "pending" else None,
+            "language": entry.get("language", ""), "lang_slug": lang_slug(entry.get("language", "")),
+            "stars": entry.get("stars", 0), "forks": entry.get("forks", 0),
+            "issue_count": open_issues.get(name.lower(), 0), "license": entry.get("license", ""),
+            "topics": entry.get("topics") or [], "homepage": safe_url(entry.get("homepage")),
+            "html_url": entry.get("html_url", ""), "created_at": entry.get("created_at") or "",
+            "updated_at": entry.get("pushed_at") or entry.get("updated_at") or "",
+            "featured": name.lower() in featured, "featured_rank": featured.index(name.lower()) if name.lower() in featured else 999,
+            "archived": bool(entry.get("archived")), "has_readme": bool(entry.get("readme_html")),
+        }
+        cards.append(card)
+    cards.sort(key=lambda c: c["updated_at"], reverse=True)
+    cards.sort(key=lambda c: c["featured_rank"])
+    _cards_cache.update(rev=store.revision, cards=cards)
+    return cards
+
+
+PUBLIC_FIELDS = ("name", "title", "description", "summary", "problem", "key_points", "reason", "audience",
+                 "tech", "category", "status", "confidence", "language", "stars", "forks", "issue_count",
+                 "license", "topics", "homepage", "html_url", "created_at", "updated_at", "featured", "archived")
+
+
+def public_card(card: dict[str, Any]) -> dict[str, Any]:
+    return {field: card[field] for field in PUBLIC_FIELDS}
+
+
+def project_detail(name: str) -> dict[str, Any] | None:
+    wanted = name.lower()
+    for card in project_cards():
+        if card["name"].lower() == wanted:
+            entry = store.get()["repos"].get(card["key"], {})
+            return {**public_card(card), "readme_html": entry.get("readme_html", "")}
+    return None
+
+
+def home(doc: dict[str, Any]) -> dict[str, Any]:
+    cards = project_cards()
+    profile = doc["profile"]
+    groups = []
+    for key in ("social", "industry"):
+        repos = [c for c in cards if c["category"] == key]
+        groups.append({"key": key, "icon": GROUP_ICONS[key], "repos": repos})
+    user = doc["github"].get("user") or {}
+    events = []
+    for event in (doc["github"].get("events") or [])[:8]:
+        repo = event.get("repo", "")
+        short = repo.split("/", 1)[1] if repo.lower().startswith(settings.github_username.lower() + "/") else repo
+        kind = event.get("type") or "other"
+        kind = "create_ref" if kind == "create" else kind  # older JSON used "create"
+        kind = kind if kind in _EVENT_ICONS else "other"
+        events.append({**event, "type": kind, "short": short, "icon": _EVENT_ICONS[kind]})
+    bio = (profile.get("bio") or "").strip()
+    return {
+        "page": "home",
+        "cards": cards,
+        "groups": groups,
+        "counts": {"all": len(cards), "social": len(groups[0]["repos"]), "industry": len(groups[1]["repos"]),
+                   "stars": sum(c["stars"] for c in cards), "followers": user.get("followers") or 0},
+        "profile": profile,
+        "headline": profile.get("headline", ""),
+        "bio_paragraphs": [p.strip() for p in re.split(r"\n\s*\n", bio) if p.strip()],
+        "age": compute_age(profile) if profile.get("show_age", True) else None,
+        "skills": profile.get("skills") or [],
+        "interests": profile.get("interests") or [],
+        "stats_images": doc["github"].get("stats_images") or [] if profile.get("show_stats", True) else [],
+        "has_profile_readme": bool(doc["github"].get("profile_readme_html")),
+        "events": events if profile.get("show_activity", True) else None,
+    }
+
+
+def issues_view(doc: dict[str, Any], state: str, repo: str) -> dict[str, Any]:
+    visible = {c["name"].lower(): c for c in project_cards()}
+    issues = [i for i in doc["github"].get("issues") or [] if i.get("repo", "").lower() in visible]
+    counts = {"open": sum(i["state"] == "open" for i in issues),
+              "closed": sum(i["state"] == "closed" for i in issues), "all": len(issues)}
+    repos = sorted({i["repo"] for i in issues}, key=str.lower)
+    if repo:
+        issues = [i for i in issues if i["repo"].lower() == repo.lower()]
+    if state in ("open", "closed"):
+        issues = [i for i in issues if i["state"] == state]
+    groups: dict[str, dict[str, Any]] = {}
+    for issue in issues:
+        card = visible[issue["repo"].lower()]
+        group = groups.setdefault(card["name"], {"repo": card["name"], "title": card["title"],
+                                                 "url": card["html_url"], "issues": []})
+        group["issues"].append({**issue, "tid": f"{slug(issue['repo'])}-{issue['number']}"})
+    return {"page": "issues", "groups": list(groups.values()), "counts": counts, "repos": repos,
+            "state": state, "repo": repo}
+
+
+# --------------------------------------------------------------------- admin --
+def admin_repo_row(key: str, entry: dict[str, Any], doc: dict[str, Any]) -> dict[str, Any]:
+    prefs = doc["settings"]
+    hidden = {n.lower() for n in prefs.get("hidden", [])}
+    featured = {n.lower() for n in prefs.get("featured", [])}
+    analysis, status = _analysis(key, entry)
+    current = entry.get("ai") or {}
+    name = entry.get("name", key)
+    return {
+        "name": name, "title": analysis.get("title") or pretty_title(name),
+        "description": entry.get("description", ""), "language": entry.get("language", ""),
+        "stars": entry.get("stars", 0), "fork": bool(entry.get("fork")), "archived": bool(entry.get("archived")),
+        "gone": bool(entry.get("gone")), "hidden": name.lower() in hidden, "featured": name.lower() in featured,
+        "category": analysis.get("category", "industry"), "status": status,
+        "provider": current.get("provider", ""), "model": current.get("model", ""),
+        "confidence": current.get("confidence"), "locked": bool(current.get("locked")),
+        "categorized_at": current.get("categorized_at", ""), "summary": analysis.get("summary", ""),
+        "reason": analysis.get("reason", ""), "key_points": analysis.get("key_points") or [],
+        "has_readme": bool(entry.get("readme_html")),
+        "readme_changed": bool(current.get("readme_sha") and entry.get("readme_sha")
+                               and current["readme_sha"] != entry["readme_sha"]),
+        "html_url": entry.get("html_url", ""), "pushed_at": entry.get("pushed_at", ""),
+    }
+
+
+def admin_repo(name: str) -> dict[str, Any] | None:
+    doc = store.get()
+    for key, entry in doc["repos"].items():
+        if entry.get("name", "").lower() == name.lower():
+            return admin_repo_row(key, entry, doc)
+    return None
+
+
+def admin_state() -> dict[str, Any]:
+    doc = store.get()
+    rows = sorted((admin_repo_row(k, e, doc) for k, e in doc["repos"].items()), key=lambda r: r["name"].lower())
+    storage = store.describe()
+    warnings = []
+    if storage.get("warning"):
+        warnings.append(storage["warning"])
+    if storage.get("error"):
+        warnings.append(f"Storage error: {storage['error']}")
+    if not storage.get("persistent"):
+        warnings.append("Changes are saved to TEMPORARY storage on this host (Vercel's disk is read-only). "
+                        "Use STORAGE_BACKEND=gist, or click “Download JSON” and commit data/portfolio.json.")
+    if not settings.github_token:
+        warnings.append("No GITHUB_TOKEN set: GitHub allows only 60 API requests/hour. A read-only token is recommended.")
+    if settings.on_vercel and all(ai.is_private_url(p.base_url) for p in ai.providers()):
+        warnings.append("Both AI endpoints are private/LAN addresses that Vercel cannot reach. Run the AI locally "
+                        "(python scripts/sync.py) and commit the JSON, or expose the gateway over HTTPS.")
+    if settings.cors_origins == ("*",) and settings.frame_ancestors == "*":
+        pass  # intentional: the public site is embeddable and its API is public
+    counts = {
+        "total": sum(1 for r in rows if not r["gone"]),
+        "ai": sum(r["status"] == "ai" for r in rows if not r["gone"]),
+        "manual": sum(r["status"] == "manual" for r in rows if not r["gone"]),
+        "pending": sum(r["status"] == "pending" for r in rows if not r["gone"] and (not r["fork"] or doc["settings"].get("include_forks"))),
+    }
+    return {
+        "repos": rows,
+        "profile": doc["profile"],
+        "settings": doc["settings"],
+        "synced_at": doc.get("synced_at"),
+        "updated_at": doc.get("updated_at"),
+        "storage": storage,
+        "warnings": warnings,
+        "counts": counts,
+        "providers": [{"key": p.key, "label": p.label, "model": p.model, "url": p.base_url} for p in ai.providers()],
+        "on_vercel": settings.on_vercel,
+    }

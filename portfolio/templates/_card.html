@@ -1,0 +1,27 @@
+{% set status_label = t('ai_summary') if r.status == 'ai' else (t('curated') if r.status == 'manual' else t('ai_pending')) %}
+<article class="pcard reveal" data-name="{{ r.name }}" data-cat="{{ r.category }}" data-stars="{{ r.stars }}"
+         data-updated="{{ r.updated_at }}" data-featured="{{ 1 if r.featured else 0 }}" data-slug="{{ r.slug }}">
+  <span class="pcard-glow" aria-hidden="true"></span>
+  <div class="pcard-top">
+    <span class="cat-chip"><i class="dot dot-{{ r.category }}"></i>{{ t('cat_' ~ r.category) }}</span>
+    {% if r.featured %}<span class="feat-chip">{{ icon('thumbtack') }}{{ t('featured') }}</span>{% endif %}
+    <span class="ai-chip ai-{{ r.status }}"{% if r.model %} title="{{ r.model }}"{% endif %}>{{ icon('magic' if r.status == 'ai' else ('check' if r.status == 'manual' else 'clock')) }}{{ status_label }}</span>
+  </div>
+  <h3 class="pcard-title"><button type="button" class="pcard-open" data-open="{{ r.name }}">{{ r.title }}</button></h3>
+  <p class="pcard-repo">{{ icon('github') }}<span>{{ r.name }}</span></p>
+  <p class="pcard-text">{{ r.summary or r.description or t('no_description') }}</p>
+  {% if r.tech %}
+  <ul class="tech" aria-label="{{ t('tech_stack') }}">
+    {% for x in r.tech[:4] %}<li>{{ x }}</li>{% endfor %}
+    {% if r.tech|length > 4 %}<li class="more">+{{ r.tech|length - 4 }}</li>{% endif %}
+  </ul>
+  {% endif %}
+  <div class="pcard-meta">
+    {% if r.language %}<span class="lang lang-{{ r.lang_slug }}"><i></i>{{ r.language }}</span>{% endif %}
+    <span title="{{ t('stars') }}">{{ icon('star') }}{{ r.stars }}</span>
+    <span title="{{ t('forks') }}">{{ icon('code-branch') }}{{ r.forks }}</span>
+    {% if r.issue_count %}<span title="{{ t('open_issues') }}">{{ icon('dot-circle') }}{{ r.issue_count }}</span>{% endif %}
+    {% if r.updated_at %}<time class="rel" datetime="{{ r.updated_at }}">{{ r.updated_at[:10] }}</time>{% endif %}
+  </div>
+  <span class="pcard-cta" aria-hidden="true">{{ t('view_details') }}{{ icon('arrow-right') }}</span>
+</article>

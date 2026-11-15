@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="{{ lang }}" data-mdb-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}{{ me.name }} · {{ t('nav_projects') }}{% endblock %}</title>
+  <meta name="description" content="{% block description %}{{ me.name }} — {{ t('projects_sub') }}{% endblock %}">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#060913" id="themeColor">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{{ me.name }}">
+  <meta property="og:description" content="{{ t('hero_headline') }}">
+  <meta property="og:image" content="{{ me.avatar }}">
+  <meta name="twitter:card" content="summary">
+  {% if site_url %}
+  <meta property="og:url" content="{{ site_url }}{{ request.url.path }}">
+  <link rel="canonical" href="{{ site_url }}{{ request.url.path }}">
+  {% endif %}
+  <link rel="icon" type="image/svg+xml" href="{{ static('favicon.svg') }}">
+  <script nonce="{{ nonce }}">(function(){var d=document.documentElement,t;d.classList.add('js');try{t=localStorage.getItem('pf-theme')}catch(e){}if(t!=='light'&&t!=='dark'){t=window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'}d.setAttribute('data-mdb-theme',t)})();</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="preconnect" href="https://img.icons8.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400..800&display=swap">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mdb-ui-kit@{{ mdb_version }}/css/mdb.min.css" integrity="{{ mdb_css_sri }}" crossorigin="anonymous">
+  <link rel="stylesheet" href="{{ static('app.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body class="page-{{ page or 'default' }}">
+  <a class="skip-link" href="#main">{{ t('skip') }}</a>
+  <div class="scene" aria-hidden="true">
+    <span class="orb orb-1"></span><span class="orb orb-2"></span><span class="orb orb-3"></span>
+    <span class="grid-glow"></span><span class="noise"></span>
+  </div>
+  <div class="scroll-progress" aria-hidden="true"><span id="scrollBar"></span></div>
+
+  {% include "_nav.html" %}
+
+  <main id="main" tabindex="-1">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% include "_footer.html" %}
+
+  {# modals live directly under <body> so they always stack above MDB's backdrop #}
+  {% block modals %}{% endblock %}
+
+  <script type="application/json" id="i18n" nonce="{{ nonce }}">{{ js_strings|tojson }}</script>
+  <script src="https://cdn.jsdelivr.net/npm/mdb-ui-kit@{{ mdb_version }}/js/mdb.umd.min.js" integrity="{{ mdb_js_sri }}" crossorigin="anonymous" nonce="{{ nonce }}" defer></script>
+  <script src="{{ static('app.js') }}" nonce="{{ nonce }}" defer></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

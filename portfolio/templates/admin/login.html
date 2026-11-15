@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Admin login · {{ me.name }}{% endblock %}
+{% block head %}<meta name="robots" content="noindex, nofollow">{% endblock %}
+
+{% block content %}
+<section class="login-wrap">
+  <div class="login-card glass reveal">
+    <img src="{{ i8('lock') }}" alt="" width="80" height="80" decoding="async">
+    <h1 class="section-title mt-2">Admin</h1>
+    <p class="section-sub justify-content-center">Manage projects, AI groups and your profile.</p>
+    {% if not configured %}
+    <div class="alert-err">Admin login is disabled until <code>ADMIN_USERNAME</code> and a strong <code>ADMIN_PASSWORD</code>
+      (8+ characters) are set in <code>.env</code> (or Vercel environment variables).</div>
+    {% endif %}
+    {% if error %}<div class="alert-err" role="alert">{{ error }}</div>{% endif %}
+    <form method="post" action="/admin/login" autocomplete="on">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div>
+        <label class="form-label" for="u">Username</label>
+        <input class="field" id="u" name="username" autocomplete="username" required maxlength="120" autofocus>
+      </div>
+      <div>
+        <label class="form-label" for="p">Password</label>
+        <input class="field" id="p" name="password" type="password" autocomplete="current-password" required maxlength="256">
+      </div>
+      <button class="btn-glow" type="submit" data-mdb-ripple-init>{{ icon('lock') }}<span>Sign in</span></button>
+    </form>
+    <a class="link-arrow mt-4" href="{{ link('/') }}">{{ icon('home') }}<span>{{ t('back_home') }}</span></a>
+  </div>
+</section>
+{% endblock %}

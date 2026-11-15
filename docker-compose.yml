@@ -1,0 +1,19 @@
+# Failsafe AI: Gemma 3 12B on Ollama, OpenAI-compatible API at http://localhost:11434/v1
+# Only used when the primary gateway (AI_PRIMARY_URL) is unreachable.
+#
+#   powershell -ExecutionPolicy Bypass -File scripts\start-fallback-ai.ps1   (GPU if available, pulls the model)
+#   or:  docker compose up -d  &&  docker exec portfolio-gemma ollama pull gemma3:12b
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: portfolio-gemma
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=10m
+    restart: unless-stopped
+
+volumes:
+  ollama: {}

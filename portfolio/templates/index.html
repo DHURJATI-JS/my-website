@@ -1,0 +1,298 @@
+{% extends "base.html" %}
+{% block title %}{{ me.name }} — {{ t('nav_projects') }}{% endblock %}
+
+{% block content %}
+{# ================================================================ HERO #}
+<section class="hero" id="top">
+  <div class="container">
+    <div class="row align-items-center gy-5">
+      <div class="col-lg-7">
+        <div class="hero-copy reveal">
+          <span class="status-pill"><span class="pulse-dot" aria-hidden="true"></span>{{ profile.availability or t('available') }}</span>
+          <p class="hero-hi">{{ t('hero_hi') }}</p>
+          <h1 class="hero-name"><span class="grad-text">{{ me.name }}</span></h1>
+          <p class="hero-headline">{{ headline or t('hero_headline') }}</p>
+          {% if age or profile.location or profile.education or profile.role %}
+          <ul class="hero-facts">
+            {% if age %}<li>{{ icon('birthday-cake') }}<span>{{ t('age_years', n=age) }}</span></li>{% endif %}
+            {% if profile.location %}<li>{{ icon('map-marker') }}<span>{{ profile.location }}</span></li>{% endif %}
+            {% if profile.education %}<li>{{ icon('graduation-cap') }}<span>{{ profile.education }}</span></li>{% endif %}
+            {% if profile.role %}<li>{{ icon('briefcase') }}<span>{{ profile.role }}</span></li>{% endif %}
+          </ul>
+          {% endif %}
+          <div class="hero-cta">
+            <a class="btn-glow" href="#projects" data-mdb-ripple-init>{{ icon('rocket') }}<span>{{ t('cta_projects') }}</span></a>
+            <a class="btn-glass" href="#contact" data-mdb-ripple-init>{{ icon('envelope') }}<span>{{ t('cta_contact') }}</span></a>
+          </div>
+          <div class="hero-social">
+            {% for s in me.socials %}
+            <a class="social-btn" href="{{ s.url }}" target="_blank" rel="noopener me" aria-label="{{ s.label }}" title="{{ s.label }}">{{ icon(s.icon) }}</a>
+            {% endfor %}
+            <a class="social-btn" href="mailto:{{ me.email }}" aria-label="{{ t('contact_email') }}" title="{{ me.email }}">{{ icon('envelope') }}</a>
+            {% if me.wa_link %}<a class="social-btn" href="{{ me.wa_link }}" target="_blank" rel="noopener" aria-label="WhatsApp" title="WhatsApp">{{ icon('whatsapp') }}</a>{% endif %}
+            <a class="social-btn" href="{{ me.feed_url }}" target="_blank" rel="noopener" aria-label="{{ t('github_feed') }}" title="{{ t('github_feed') }}">{{ icon('rss') }}</a>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-5">
+        <div class="avatar-stage reveal" id="avatarStage">
+          <div class="avatar-ring"><div class="avatar-ring-inner">
+            <img class="avatar" src="{{ me.avatar }}" alt="{{ me.name }}" width="320" height="320" fetchpriority="high" decoding="async">
+          </div></div>
+          <img class="float-icon fi-1" src="{{ i8('rocket') }}" alt="" width="72" height="72" decoding="async">
+          <img class="float-icon fi-2" src="{{ i8('brain') }}" alt="" width="64" height="64" decoding="async">
+          <img class="float-icon fi-3" src="{{ i8('code') }}" alt="" width="58" height="58" decoding="async">
+          <img class="float-icon fi-4" src="{{ i8('sparkling') }}" alt="" width="46" height="46" decoding="async">
+          <div class="avatar-badge glass">
+            <strong data-count="{{ counts.all }}">{{ counts.all }}</strong><span>{{ t('stat_projects') }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <a class="scroll-cue" href="#projects" aria-label="{{ t('nav_projects') }}"><span></span></a>
+</section>
+
+{# ================================================================ KPI ROW #}
+<section class="kpi-band" aria-label="{{ t('nav_stats') }}">
+  <div class="container">
+    <div class="kpi-grid">
+      {% for img, label, value in [('opened-folder', t('stat_projects'), counts.all), ('handshake', t('stat_social'), counts.social), ('rocket', t('stat_industry'), counts.industry), ('star', t('stat_stars'), counts.stars)] %}
+      <div class="kpi glass reveal">
+        <img src="{{ i8(img) }}" alt="" width="52" height="52" loading="lazy" decoding="async">
+        <div><span class="kpi-value" data-count="{{ value }}">{{ value }}</span><span class="kpi-label">{{ label }}</span></div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+{# ================================================================ ABOUT #}
+{% if bio_paragraphs or skills or interests %}
+<section class="section" id="about">
+  <div class="container">
+    <div class="about glass reveal">
+      <header class="section-head">
+        <img class="section-icon" src="{{ i8('idea') }}" alt="" width="56" height="56" loading="lazy" decoding="async">
+        <h2 class="section-title">{{ t('about_title') }}</h2>
+      </header>
+      <div class="row g-4">
+        {% if bio_paragraphs %}
+        <div class="{{ 'col-lg-7' if skills or interests else 'col-12' }} about-bio">{% for p in bio_paragraphs %}<p>{{ p }}</p>{% endfor %}</div>
+        {% endif %}
+        {% if skills or interests %}
+        <div class="{{ 'col-lg-5' if bio_paragraphs else 'col-12' }}">
+          {% if skills %}<h3 class="mini-title">{{ t('skills') }}</h3><ul class="tags">{% for s in skills %}<li>{{ s }}</li>{% endfor %}</ul>{% endif %}
+          {% if interests %}<h3 class="mini-title">{{ t('interests') }}</h3><ul class="tags tags-soft">{% for s in interests %}<li>{{ s }}</li>{% endfor %}</ul>{% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</section>
+{% endif %}
+
+{# ================================================================ PROJECTS #}
+<section class="section" id="projects">
+  <div class="container">
+    <header class="section-head reveal">
+      <img class="section-icon" src="{{ i8('opened-folder') }}" alt="" width="56" height="56" loading="lazy" decoding="async">
+      <div>
+        <h2 class="section-title">{{ t('projects_title') }}</h2>
+        <p class="section-sub">{{ icon('magic') }}<span>{{ t('projects_sub') }}</span></p>
+      </div>
+    </header>
+
+    {% if cards %}
+    <div class="toolbar glass reveal">
+      <div class="seg" role="tablist" aria-label="{{ t('projects_title') }}" id="catTabs">
+        <span class="seg-glider" aria-hidden="true"></span>
+        <button type="button" class="seg-btn is-active" role="tab" aria-selected="true" data-filter="all">{{ icon('layer-group') }}<span>{{ t('cat_all') }}</span><b>{{ counts.all }}</b></button>
+        <button type="button" class="seg-btn" role="tab" aria-selected="false" data-filter="social"><i class="dot dot-social"></i><span>{{ t('cat_social') }}</span><b>{{ counts.social }}</b></button>
+        <button type="button" class="seg-btn" role="tab" aria-selected="false" data-filter="industry"><i class="dot dot-industry"></i><span>{{ t('cat_industry') }}</span><b>{{ counts.industry }}</b></button>
+      </div>
+      <label class="search-box">{{ icon('search') }}<span class="visually-hidden">{{ t('search') }}</span>
+        <input type="search" id="projectSearch" placeholder="{{ t('search') }}" autocomplete="off" spellcheck="false" maxlength="80">
+      </label>
+      <label class="sort-box">{{ icon('sort') }}<span class="visually-hidden">{{ t('sort') }}</span>
+        <select id="projectSort">
+          <option value="updated">{{ t('sort_updated') }}</option>
+          <option value="stars">{{ t('sort_stars') }}</option>
+          <option value="name">{{ t('sort_name') }}</option>
+        </select>
+      </label>
+    </div>
+    {% endif %}
+
+    {% for g in groups if g.repos %}
+    <div class="group" data-group="{{ g.key }}">
+      <div class="group-head reveal">
+        <img class="group-icon" src="{{ i8(g.icon) }}" alt="" width="54" height="54" loading="lazy" decoding="async">
+        <div>
+          <h3 class="group-title"><i class="dot dot-{{ g.key }}"></i>{{ t('cat_' ~ g.key) }} <span class="group-count">{{ g.repos|length }}</span></h3>
+          <p class="group-desc">{{ t('cat_' ~ g.key ~ '_desc') }}</p>
+        </div>
+      </div>
+      <div class="cards">
+        {% for r in g.repos %}{% include "_card.html" %}{% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+    <p class="empty-state" id="noResults" hidden>{{ icon('search') }}<span>{{ t('no_results') }}</span></p>
+    {% if not cards %}<p class="empty-state">{{ icon('clock') }}<span>{{ t('ai_pending') }}</span></p>{% endif %}
+  </div>
+  {% for r in cards %}{% include "_repo_template.html" %}{% endfor %}
+</section>
+
+{# ================================================================ GITHUB STATS #}
+{% if stats_images %}
+<section class="section" id="stats">
+  <div class="container">
+    <header class="section-head reveal">
+      <img class="section-icon" src="{{ i8('combo-chart') }}" alt="" width="56" height="56" loading="lazy" decoding="async">
+      <div>
+        <h2 class="section-title">{{ t('stats_title') }}</h2>
+        <p class="section-sub">{{ t('stats_sub') }}</p>
+      </div>
+    </header>
+    <div class="stats-grid">
+      {% for img in stats_images %}
+      <figure class="stat-card glass reveal"><img src="{{ img.src }}" alt="{{ img.alt or t('stats_title') }}" loading="lazy" decoding="async" referrerpolicy="no-referrer"></figure>
+      {% endfor %}
+    </div>
+    {% if has_profile_readme %}
+    <div class="center-actions reveal">
+      <button type="button" class="btn-glass" id="openProfileReadme" data-mdb-ripple-init>{{ icon('book-open') }}<span>{{ t('view_profile_readme') }}</span></button>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{# ================================================================ ACTIVITY #}
+{% if events is not none %}
+<section class="section" id="activity">
+  <div class="container">
+    <div class="row g-4 align-items-stretch">
+      <div class="col-lg-5">
+        <div class="activity-intro glass reveal">
+          <img src="{{ i8('github') }}" alt="" width="72" height="72" loading="lazy" decoding="async">
+          <h2 class="section-title">{{ t('activity_title') }}</h2>
+          <p class="section-sub">{{ t('activity_sub') }}</p>
+          <div class="d-flex flex-wrap gap-2 mt-4">
+            <a class="btn-glow" href="{{ me.github_url }}" target="_blank" rel="noopener me" data-mdb-ripple-init>{{ icon('github') }}<span>{{ t('github_profile') }}</span></a>
+            <a class="btn-glass" href="{{ me.feed_url }}" target="_blank" rel="noopener" data-mdb-ripple-init>{{ icon('rss') }}<span>{{ t('github_feed') }}</span></a>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-7">
+        <ol class="timeline glass reveal">
+          {% for e in events %}
+          <li class="tl-item">
+            <span class="tl-icon">{{ icon(e.icon) }}</span>
+            <div class="tl-body">
+              <a href="{{ e.url }}" target="_blank" rel="noopener">{{ t('ev_' ~ e.type, repo=e.short, ref_type=e.ref_type or '', ref=e.ref or '') }}</a>
+              <time class="rel" datetime="{{ e.at }}">{{ (e.at or '')[:10] }}</time>
+            </div>
+          </li>
+          {% else %}
+          <li class="tl-empty">{{ icon('clock') }}<span>{{ t('activity_empty') }}</span></li>
+          {% endfor %}
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+{% endif %}
+
+{# ================================================================ CONTACT #}
+<section class="section" id="contact">
+  <div class="container">
+    <div class="contact glass reveal">
+      <div class="contact-head">
+        <img src="{{ i8('chat-message') }}" alt="" width="64" height="64" loading="lazy" decoding="async">
+        <h2 class="section-title">{{ t('contact_title') }}</h2>
+        <p class="section-sub">{{ t('contact_sub') }}</p>
+      </div>
+      <div class="contact-grid">
+        <div class="contact-card c-mail">
+          <img src="{{ i8('gmail') }}" alt="" width="56" height="56" loading="lazy" decoding="async">
+          <span class="c-label">{{ t('contact_email') }}</span>
+          <a class="c-value stretched" href="mailto:{{ me.email }}">{{ me.email }}</a>
+          <span class="c-action">{{ t('contact_write') }}{{ icon('arrow-right') }}</span>
+          <button class="copy-btn" type="button" data-copy="{{ me.email }}" aria-label="{{ t('copy') }}: {{ me.email }}" title="{{ t('copy') }}">{{ icon('copy') }}</button>
+        </div>
+        {% if me.wa_link %}
+        <div class="contact-card c-wa">
+          <img src="{{ i8('whatsapp') }}" alt="" width="56" height="56" loading="lazy" decoding="async">
+          <span class="c-label">{{ t('contact_whatsapp') }}</span>
+          <a class="c-value stretched" href="{{ me.wa_link }}" target="_blank" rel="noopener">{{ me.whatsapp }}</a>
+          <span class="c-action">{{ t('contact_chat') }}{{ icon('arrow-right') }}</span>
+          <button class="copy-btn" type="button" data-copy="{{ me.whatsapp }}" aria-label="{{ t('copy') }}: {{ me.whatsapp }}" title="{{ t('copy') }}">{{ icon('copy') }}</button>
+        </div>
+        {% endif %}
+        <div class="contact-card c-gh">
+          <img src="{{ i8('github') }}" alt="" width="56" height="56" loading="lazy" decoding="async">
+          <span class="c-label">{{ t('contact_github') }}</span>
+          <a class="c-value stretched" href="{{ me.github_url }}" target="_blank" rel="noopener me">@{{ me.username }}</a>
+          <span class="c-action">{{ t('contact_follow') }}{{ icon('arrow-right') }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ================================================================ DISCLAIMER #}
+<section class="section section-tight" id="disclaimer">
+  <div class="container">
+    <aside class="disclaimer glass reveal">
+      <img src="{{ i8('shield') }}" alt="" width="60" height="60" loading="lazy" decoding="async">
+      <div>
+        <h2>{{ t('disclaimer_title') }}</h2>
+        <p>{{ t('disclaimer_short') }}</p>
+        <a class="link-arrow" href="{{ link('/disclaimer') }}">{{ t('disclaimer_read') }}{{ icon('arrow-right') }}</a>
+      </div>
+    </aside>
+  </div>
+</section>
+
+{% endblock %}
+
+{% block modals %}
+{# ================================================================ MODALS (MDBootstrap) #}
+<div class="modal fade" id="repoModal" tabindex="-1" aria-labelledby="repoModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable modal-fullscreen-lg-down">
+    <div class="modal-content glass-modal">
+      <div class="modal-header">
+        <div class="m-head">
+          <h2 class="modal-title" id="repoModalTitle"></h2>
+          <a class="m-repo" id="repoModalRepo" href="#" target="_blank" rel="noopener">{{ icon('github') }}<span></span></a>
+        </div>
+        <button type="button" class="x-btn" data-mdb-dismiss="modal" aria-label="{{ t('close') }}">{{ icon('times') }}</button>
+      </div>
+      <div class="modal-body" id="repoModalBody"></div>
+      <div class="modal-footer">
+        <a class="btn-glass btn-sm" id="repoModalIssues" href="{{ link('/issues') }}">{{ icon('bug') }}<span>{{ t('see_issues') }}</span></a>
+        <a class="btn-glass btn-sm" id="repoModalHome" href="#" target="_blank" rel="noopener" hidden>{{ icon('external-link') }}<span>{{ t('live_demo') }}</span></a>
+        <a class="btn-glow btn-sm" id="repoModalGithub" href="#" target="_blank" rel="noopener">{{ icon('github') }}<span>{{ t('view_github') }}</span></a>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if has_profile_readme %}
+<div class="modal fade" id="readmeModal" tabindex="-1" aria-labelledby="readmeModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-md-down">
+    <div class="modal-content glass-modal">
+      <div class="modal-header">
+        <h2 class="modal-title" id="readmeModalTitle">{{ icon('github') }} {{ me.username }} / README.md</h2>
+        <button type="button" class="x-btn" data-mdb-dismiss="modal" aria-label="{{ t('close') }}">{{ icon('times') }}</button>
+      </div>
+      <div class="modal-body">
+        <div class="markdown-body" id="profileReadme"><div class="readme-loading"><span class="spinner"></span>{{ t('loading_readme') }}</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

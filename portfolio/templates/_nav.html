@@ -1,0 +1,54 @@
+{% set home = page == 'home' %}
+<nav class="navbar navbar-expand-lg nav-glass fixed-top" id="topnav" aria-label="Main">
+  <div class="container">
+    <a class="brand" href="{{ link('/') }}">
+      <span class="brand-avatar"><img src="{{ me.avatar }}" alt="" width="34" height="34" decoding="async"></span>
+      <span class="brand-text">
+        <span class="brand-name">{{ me.name }}</span>
+        <span class="brand-sub">@{{ me.username }}</span>
+      </span>
+    </a>
+
+    {# AI status · theme · login — always visible (beside the burger on phones, at the end on desktop) #}
+    <div class="nav-tools ms-auto ms-lg-2 order-lg-last">
+      <span class="ai-status" id="aiStatus" data-state="checking" role="status" aria-live="polite" title="{{ t('ai_checking') }}">
+        <span class="ai-dot" aria-hidden="true"></span>
+        <span class="ai-short" aria-hidden="true">{{ t('ai_short') }}</span>
+        <span class="ai-label">{{ t('ai_checking') }}</span>
+      </span>
+      <button class="theme-toggle" type="button" id="themeToggle" aria-label="{{ t('theme_toggle') }}" title="{{ t('theme_toggle') }}">
+        {{ icon('sun', 'i-sun') }}{{ icon('moon', 'i-moon') }}
+      </button>
+      {% if is_admin %}
+      <a class="login-btn is-in" href="/admin/dashboard" title="{{ t('dashboard') }}" aria-label="{{ t('dashboard') }}">{{ icon('robot') }}<span class="login-text">{{ t('dashboard') }}</span></a>
+      {% else %}
+      <a class="login-btn{% if page == 'admin' %} active{% endif %}" href="/admin/login" rel="nofollow" title="{{ t('login') }}" aria-label="{{ t('login') }}">{{ icon('lock') }}<span class="login-text">{{ t('login') }}</span></a>
+      {% endif %}
+    </div>
+
+    <button class="navbar-toggler nav-burger" type="button" data-mdb-collapse-init data-mdb-target="#navMenu"
+            aria-controls="navMenu" aria-expanded="false" aria-label="Menu">{{ icon('bars') }}</button>
+    <div class="collapse navbar-collapse" id="navMenu">
+      <ul class="navbar-nav ms-auto align-items-lg-center">
+        <li class="nav-item"><a class="nav-link" href="{{ '#projects' if home else link('/#projects') }}">{{ t('nav_projects') }}</a></li>
+        {% if nav_stats %}
+        <li class="nav-item"><a class="nav-link" href="{{ '#stats' if home else link('/#stats') }}">{{ t('nav_stats') }}</a></li>
+        {% endif %}
+        {% if nav_activity %}
+        <li class="nav-item"><a class="nav-link" href="{{ '#activity' if home else link('/#activity') }}">{{ t('nav_activity') }}</a></li>
+        {% endif %}
+        <li class="nav-item"><a class="nav-link{% if page == 'issues' %} active{% endif %}" href="{{ link('/issues') }}"{% if page == 'issues' %} aria-current="page"{% endif %}>{{ t('nav_issues') }}</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ '#contact' if home else link('/#contact') }}">{{ t('nav_contact') }}</a></li>
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle lang-toggle" href="#" id="langMenu" role="button" data-mdb-dropdown-init
+             aria-expanded="false" aria-label="{{ t('language') }}">{{ icon('language') }}<span>{{ langs[lang] }}</span></a>
+          <ul class="dropdown-menu dropdown-menu-end lang-menu" aria-labelledby="langMenu">
+            {% for code, label in langs.items() %}
+            <li><a class="dropdown-item{% if code == lang %} active{% endif %}" href="{{ lang_url(code) }}" hreflang="{{ code }}" lang="{{ code }}">{{ label }}</a></li>
+            {% endfor %}
+          </ul>
+        </li>
+      </ul>
+    </div>
+  </div>
+</nav>

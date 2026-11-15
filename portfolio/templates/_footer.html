@@ -1,0 +1,40 @@
+<footer class="site-footer">
+  <div class="footer-line" aria-hidden="true"></div>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <img src="{{ me.avatar }}" alt="" width="48" height="48" loading="lazy" decoding="async">
+        <div>
+          <strong>{{ me.name }}</strong>
+          <p>{{ t('footer_tagline') }}</p>
+        </div>
+      </div>
+      <nav class="footer-links" aria-label="Footer">
+        <a href="{{ link('/#projects') }}">{{ t('nav_projects') }}</a>
+        <a href="{{ link('/issues') }}">{{ t('nav_issues') }}</a>
+        <a href="{{ link('/disclaimer') }}">{{ t('nav_disclaimer') }}</a>
+        <a href="{{ me.feed_url }}" target="_blank" rel="noopener">{{ icon('rss') }}<span>Feed</span></a>
+      </nav>
+      <div class="footer-social">
+        {% for s in me.socials %}
+        <a class="social-btn" href="{{ s.url }}" target="_blank" rel="noopener me" aria-label="{{ s.label }}" title="{{ s.label }}">{{ icon(s.icon) }}</a>
+        {% endfor %}
+        <a class="social-btn" href="mailto:{{ me.email }}" aria-label="{{ t('contact_email') }}" title="{{ me.email }}">{{ icon('envelope') }}</a>
+        {% if me.wa_link %}
+        <a class="social-btn" href="{{ me.wa_link }}" target="_blank" rel="noopener" aria-label="WhatsApp" title="WhatsApp">{{ icon('whatsapp') }}</a>
+        {% endif %}
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© {{ year }} {{ me.name }}. {{ t('footer_rights') }}</span>
+      {% if synced_at %}
+      <span>{{ icon('sync') }}{{ t('last_synced') }}: <time class="rel" datetime="{{ synced_at }}">{{ synced_at[:10] }}</time></span>
+      {% endif %}
+      <span>{{ t('icons_by') }} <a href="https://icons8.com" target="_blank" rel="noopener">Icons8</a> · FastAPI · <a href="/admin" rel="nofollow">{{ t('nav_admin') }}</a></span>
+    </div>
+  </div>
+  <button class="to-top" id="toTop" type="button" aria-label="{{ t('back_to_top') }}" title="{{ t('back_to_top') }}">
+    <svg class="to-top-ring" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="21"></circle><circle class="ring-fill" cx="24" cy="24" r="21"></circle></svg>
+    {{ icon('arrow-up') }}
+  </button>
+</footer>

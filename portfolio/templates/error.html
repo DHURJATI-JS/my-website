@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} · {{ me.name }}{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+
+{% block content %}
+<section class="error-wrap">
+  <div class="error-card glass reveal">
+    <img src="{{ i8('search' if code == 404 else 'high-priority') }}" alt="" width="84" height="84" decoding="async">
+    <div class="error-code grad-text">{{ code }}</div>
+    <p class="error-msg">{{ message }}</p>
+    <a class="btn-glow" href="{{ link('/') }}" data-mdb-ripple-init>{{ icon('home') }}<span>{{ t('back_home') }}</span></a>
+  </div>
+</section>
+{% endblock %}

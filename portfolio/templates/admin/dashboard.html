@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Admin · {{ me.name }}{% endblock %}
+{% block head %}
+<meta name="csrf-token" content="{{ csrf }}">
+<meta name="robots" content="noindex, nofollow">
+{% endblock %}
+
+{% block content %}
+{% set p = state.profile %}
+<section class="admin">
+  <div class="container">
+    <header class="admin-head">
+      <div>
+        <h1 class="section-title">{{ icon('robot') }}Admin dashboard</h1>
+        <p class="section-sub">Signed in as <b>{{ admin_user }}</b> · single source of truth:
+          <code>{{ state.storage.location }}</code></p>
+      </div>
+      <div class="d-flex flex-wrap gap-2">
+        <a class="btn-glass btn-sm" href="/" target="_blank" rel="noopener">{{ icon('external-link') }}<span>View site</span></a>
+        <button class="btn-glass btn-sm" type="button" id="logoutBtn">{{ icon('sign-out') }}<span>Log out</span></button>
+      </div>
+    </header>
+
+    <div id="warnings" aria-live="polite">
+      {% for w in state.warnings %}<div class="admin-alert">{{ icon('warning') }}<span>{{ w }}</span></div>{% endfor %}
+    </div>
+
+    <div class="row g-4">
+      <div class="col-xl-5">
+        <section class="admin-card glass">
+          <h2>{{ icon('server') }}AI engine</h2>
+          <ul class="providers" id="providers">
+            {% for pr in state.providers %}
+            <li data-key="{{ pr.key }}">
+              <span class="status-dot"></span>
+              <div><b>{{ loop.index }}. {{ pr.label }}</b><small>{{ pr.model }} · {{ pr.url }}</small></div>
+              <span class="p-state">checking…</span>
+            </li>
+            {% endfor %}
+          </ul>
+          <button class="btn-glass btn-sm" type="button" id="checkAI">{{ icon('sync') }}<span>Check again</span></button>
+          <p class="hint">The gateway is tried first, then the local Docker Gemma&nbsp;3&nbsp;12B failsafe. If both are
+            offline, visitors see a keyword-based preview and the repo stays “new” until the AI can read it.</p>
+          <div class="counts" id="counts"></div>
+        </section>
+      </div>
+
+      <div class="col-xl-7">
+        <section class="admin-card glass">
+          <h2>{{ icon('magic') }}Categorise with AI</h2>
+          <div class="action-grid">
+            <div class="action">
+              <div><b>1 · Sync GitHub details</b>
+                <p>Refresh repo details, READMEs, issues and activity in the JSON. No AI, nothing is re-grouped.</p></div>
+              <button class="btn-glass" type="button" data-action="sync">{{ icon('sync') }}<span>Sync now</span></button>
+            </div>
+            <div class="action action-primary">
+              <div><b>2 · Categorise NEW repositories only</b>
+                <p>Recommended. Syncs, then the AI reads only repos that are not in the JSON yet — existing groups stay as they are.</p></div>
+              <button class="btn-glow" type="button" data-action="new">{{ icon('plus') }}<span>Categorise new</span></button>
+            </div>
+            <div class="action">
+              <div><b>3 · Re-verify &amp; re-categorise ALL</b>
+                <p>Syncs, then the AI re-reads every README and re-groups every repository.</p>
+                <label class="check"><input type="checkbox" id="includeLocked"> Also override my manual (locked) choices</label></div>
+              <button class="btn-glass" type="button" data-action="all">{{ icon('sync') }}<span>Re-verify all</span></button>
+            </div>
+          </div>
+          <div class="progress-wrap" id="progressWrap" hidden>
+            <div class="progress-track"><span class="progress-fill" id="progressFill"></span></div>
+            <div class="progress-text" id="progressText"></div>
+          </div>
+          <ol class="log" id="log" aria-live="polite"></ol>
+        </section>
+      </div>
+    </div>
+
+    <section class="admin-card glass mt-4">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <h2 class="mb-0">{{ icon('layer-group') }}Repositories</h2>
+        <label class="check mt-0"><input type="checkbox" id="includeForks"{% if state.settings.include_forks %} checked{% endif %}> Show forked repositories on the site</label>
+      </div>
+      <p class="hint">Change a group to override the AI (your choice is locked). <b>Featured</b> pins a project to the top;
+        <b>Hidden</b> removes it from the public site. ↺ forgets the AI result so the repo counts as new again.</p>
+      <div class="table-wrap">
+        <table class="admin-table">
+          <thead><tr><th scope="col">Repository</th><th scope="col">Group</th><th scope="col">Source</th><th scope="col">Featured</th><th scope="col">Hidden</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+          <tbody id="repoRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="admin-card glass mt-4">
+      <h2>{{ icon('user') }}Profile</h2>
+      <form id="profileForm" class="profile-form" novalidate>
+        <div class="row g-3">
+          <div class="col-md-6"><label for="f-name">Display name</label><input class="field" id="f-name" name="name" maxlength="80" value="{{ p.name }}" placeholder="Defaults to your GitHub name"></div>
+          <div class="col-md-6"><label for="f-availability">Status badge</label><input class="field" id="f-availability" name="availability" maxlength="80" value="{{ p.availability }}" placeholder="Open to collaborations"></div>
+          <div class="col-12"><label for="f-headline">Headline</label><input class="field" id="f-headline" name="headline" maxlength="220" value="{{ p.headline }}" placeholder="Student developer building AI-powered tools…"></div>
+          <div class="col-12"><label for="f-bio">Biography <small>(blank line = new paragraph)</small></label><textarea class="field" id="f-bio" name="bio" maxlength="3000" rows="5">{{ p.bio }}</textarea></div>
+          <div class="col-md-3"><label for="f-age">Age</label><input class="field" id="f-age" name="age" inputmode="numeric" pattern="\d{0,3}" maxlength="3" value="{{ p.age }}"></div>
+          <div class="col-md-3"><label for="f-birth">Birth date <small>(auto-updates age)</small></label><input class="field" id="f-birth" name="birth_date" type="date" value="{{ p.birth_date }}"></div>
+          <div class="col-md-6"><label for="f-location">Location</label><input class="field" id="f-location" name="location" maxlength="120" value="{{ p.location }}"></div>
+          <div class="col-md-6"><label for="f-education">Education</label><input class="field" id="f-education" name="education" maxlength="160" value="{{ p.education }}"></div>
+          <div class="col-md-6"><label for="f-role">Role</label><input class="field" id="f-role" name="role" maxlength="120" value="{{ p.role }}"></div>
+          <div class="col-md-6"><label for="f-skills">Skills <small>(comma separated)</small></label><input class="field" id="f-skills" name="skills" value="{{ p.skills|join(', ') }}"></div>
+          <div class="col-md-6"><label for="f-interests">Interests <small>(comma separated)</small></label><input class="field" id="f-interests" name="interests" value="{{ p.interests|join(', ') }}"></div>
+          <div class="col-md-6"><label for="f-email">Contact email</label><input class="field" id="f-email" name="email" type="email" maxlength="120" value="{{ p.email }}"></div>
+          <div class="col-md-6"><label for="f-wa">WhatsApp</label><input class="field" id="f-wa" name="whatsapp" maxlength="24" value="{{ p.whatsapp }}"></div>
+          <div class="col-md-6"><label for="f-avatar">Avatar URL <small>(blank = GitHub avatar)</small></label><input class="field" id="f-avatar" name="avatar_url" type="url" maxlength="300" value="{{ p.avatar_url }}"></div>
+          <div class="col-md-6"><label for="f-resume">Resume / CV URL</label><input class="field" id="f-resume" name="resume_url" type="url" maxlength="300" value="{{ p.resume_url }}"></div>
+          <div class="col-md-6"><label for="f-website">Website</label><input class="field" id="f-website" name="website" maxlength="300" value="{{ p.website }}"></div>
+          <div class="col-md-6"><label for="f-linkedin">LinkedIn <small>(URL or handle)</small></label><input class="field" id="f-linkedin" name="linkedin" maxlength="300" value="{{ p.linkedin }}"></div>
+          <div class="col-md-4"><label for="f-twitter">X / Twitter</label><input class="field" id="f-twitter" name="twitter" maxlength="300" value="{{ p.twitter }}"></div>
+          <div class="col-md-4"><label for="f-instagram">Instagram</label><input class="field" id="f-instagram" name="instagram" maxlength="300" value="{{ p.instagram }}"></div>
+          <div class="col-md-4"><label for="f-youtube">YouTube</label><input class="field" id="f-youtube" name="youtube" maxlength="300" value="{{ p.youtube }}"></div>
+          <div class="col-12 d-flex flex-wrap gap-4">
+            <label class="check"><input type="checkbox" name="show_age"{% if p.show_age %} checked{% endif %}> Show age</label>
+            <label class="check"><input type="checkbox" name="show_stats"{% if p.show_stats %} checked{% endif %}> Show GitHub stats</label>
+            <label class="check"><input type="checkbox" name="show_activity"{% if p.show_activity %} checked{% endif %}> Show activity feed</label>
+          </div>
+        </div>
+        <div class="d-flex flex-wrap gap-3 mt-3">
+          <button class="btn-glow" type="submit">{{ icon('save') }}<span>Save profile</span></button>
+          <span class="form-msg" id="profileMsg" aria-live="polite"></span>
+        </div>
+      </form>
+    </section>
+
+    <section class="admin-card glass mt-4">
+      <h2>{{ icon('download') }}Data &amp; deployment</h2>
+      <p>Everything the site shows — repo details, README HTML, AI groups &amp; summaries, issues, activity and this profile —
+        lives in one JSON file: <code>{{ state.storage.location }}</code>
+        ({{ 'saved permanently' if state.storage.persistent else 'TEMPORARY on this host' }}).</p>
+      <a class="btn-glass" href="/admin/export">{{ icon('download') }}<span>Download JSON</span></a>
+      <p class="hint">On Vercel: categorise locally (where your AI gateway is reachable), then commit
+        <code>data/portfolio.json</code> — or set <code>STORAGE_BACKEND=gist</code> so changes made here persist. See README.md.</p>
+    </section>
+  </div>
+</section>
+<script type="application/json" id="adminState" nonce="{{ nonce }}">{{ state|tojson }}</script>
+{% endblock %}
+
+{% block scripts %}<script src="{{ static('admin.js') }}" nonce="{{ nonce }}" defer></script>{% endblock %}

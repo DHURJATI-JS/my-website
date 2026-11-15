@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ t('nav_disclaimer') }} · {{ me.name }}{% endblock %}
+{% block description %}{{ t('disclaimer_short') }}{% endblock %}
+
+{% block content %}
+<section class="page-hero">
+  <div class="container">
+    <header class="section-head reveal">
+      <img class="section-icon" src="{{ i8('shield') }}" alt="" width="64" height="64" decoding="async">
+      <div>
+        <h1 class="section-title">{{ t('disclaimer_title') }}</h1>
+        <p class="section-sub">{{ t('disclaimer_short') }}</p>
+      </div>
+    </header>
+
+    <article class="legal glass reveal" lang="en">
+      {% if lang != 'en' %}<p class="legal-note" lang="{{ lang }}">{{ icon('language') }}<span>{{ t('disclaimer_lang_note') }}</span></p>{% endif %}
+      <p>This website and every project, repository, code sample, README, document, demo, statistic and
+        AI-generated summary linked from it (together, the “Projects”) are shared by {{ me.name }} for
+        educational and informational purposes only.</p>
+
+      <h2>{{ icon('shield') }}1. No warranty</h2>
+      <p class="legal-strong">The Projects are provided “as is” and “as available”, without warranty of any kind,
+        express or implied, including but not limited to the warranties of merchantability, fitness for a
+        particular purpose, accuracy, reliability, security and non-infringement.</p>
+
+      <h2>{{ icon('balance') }}2. No liability</h2>
+      <p class="legal-strong">To the maximum extent permitted by law, in no event shall the author, contributors or
+        copyright holders be liable for any claim, damages, loss of data, loss of profits or other liability —
+        whether direct, indirect, incidental, special or consequential, and whether in an action of contract,
+        tort or otherwise — arising from, out of or in connection with the Projects or the use of or other
+        dealings in them.</p>
+
+      <h2>{{ icon('user') }}3. No responsibility — use at your own risk</h2>
+      <p>You are solely responsible for how you use, deploy, modify, test or rely on any Project, including backing
+        up your data, securing your systems and complying with all applicable laws, licences and third-party terms.
+        Nothing here is professional, medical, financial, legal or safety advice.</p>
+
+      <h2>{{ icon('magic') }}4. AI-generated content</h2>
+      <p>Project groups (“Social impact” / “Industry &amp; startup”) and the summaries on this site are produced
+        automatically by an AI model from each README. They may be incomplete, outdated or wrong, and are not
+        statements of fact, guarantees or endorsements.</p>
+
+      <h2>{{ icon('warning') }}5. Health, safety and wellbeing topics</h2>
+      <p>Some Projects touch on wellbeing, fitness, health or safety. They are student experiments, not medical
+        devices or a substitute for professional care. In an emergency, contact your local emergency services.</p>
+
+      <h2>{{ icon('link') }}6. Third-party content and services</h2>
+      <p>Links, badges, images, statistics cards, APIs and services from third parties (including GitHub) are outside
+        the author's control. No responsibility is accepted for their content, availability, security or privacy
+        practices.</p>
+
+      <h2>{{ icon('file') }}7. Licences and changes</h2>
+      <p>Where a repository includes its own licence, that licence governs the use of its code together with this
+        disclaimer, to the maximum extent permitted by law. Projects may change, break or be removed at any time
+        without notice.</p>
+
+      <p class="legal-final">If you do not agree with this disclaimer, do not use the Projects. Questions?
+        <a href="mailto:{{ me.email }}">{{ me.email }}</a></p>
+    </article>
+  </div>
+</section>
+{% endblock %}
