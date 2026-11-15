@@ -103,6 +103,11 @@ def _details(repo: dict) -> dict[str, Any]:
     }
 
 
+def is_public(repo: dict) -> bool:
+    """Only public repositories are ever shown on the site."""
+    return not repo.get("private") and (repo.get("visibility") or "public") == "public"
+
+
 def list_repos(username: str) -> list[dict]:
     repos: list[dict] = []
     for page in range(1, 11):
@@ -158,7 +163,7 @@ def _readme_bundle(owner: str, repo: dict, previous: dict) -> dict[str, Any]:
 
 def fetch_issues(owner: str) -> list[dict[str, Any]]:
     resp = _get("/search/issues", accept="application/vnd.github.html+json",
-                params={"q": f"user:{owner} is:issue", "sort": "updated", "order": "desc", "per_page": 60})
+                params={"q": f"user:{owner} is:issue is:public", "sort": "updated", "order": "desc", "per_page": 60})
     items = (resp.json() if resp else {}).get("items") or []
     issues = []
     for item in items:
@@ -238,6 +243,8 @@ def collect(doc: dict[str, Any]) -> dict[str, Any]:
     profile_repo = None
     jobs = []
     for repo in repos:
+        if not is_public(repo):
+            continue  # never show private/internal repos, whatever the token can see
         if repo["name"].lower() == owner.lower():
             profile_repo = repo  # the special profile README repo (holds GitHub stats)
             continue
@@ -296,9 +303,14 @@ def apply(doc: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
         entry.update(details)
         entry.pop("gone", None)
     for key, entry in repos.items():
-        if key not in result["repos"] and not entry.get("gone"):
-            entry["gone"] = True  # keep its AI data in case it comes back
-            gone.append(entry.get("name", key))
+        if key not in result["repos"]:
+            if not entry.get("gone"):
+                entry["gone"] = True  # keep its AI data in case it comes back
+                gone.append(entry.get("name", key))
+            # Deleted or made private: drop its README copy so it can't leak through the
+            # data file or Gist. It is fetched again if the repo becomes public again.
+            for field in ("readme_html", "readme_excerpt", "readme_sha", "readme_path", "readme_pushed_at"):
+                entry.pop(field, None)
     github = doc["github"]
     github["user"] = result["user"]
     if result.get("profile") is not None:
