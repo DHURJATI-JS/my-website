@@ -20,7 +20,7 @@ from portfolio import ai, jobs  # noqa: E402
 from portfolio.config import settings  # noqa: E402
 from portfolio.github import GitHubError  # noqa: E402
 
-LABEL = {"social": "Social impact", "industry": "Industry & startup"}
+LABEL = {"social": "Social impact", "industry": "Industry & startup", "other": "Other"}
 
 
 def main() -> int:

@@ -70,6 +70,7 @@ def base_context(request: Request, lang: str, explicit: bool) -> dict[str, Any]:
     return {
         "nav_stats": bool(profile.get("show_stats", True) and doc["github"].get("stats_images")),
         "nav_activity": bool(profile.get("show_activity", True)),
+        "nav_research": bool(views.research_cards()),  # only while switched on AND something is shown
         "is_admin": read_session(request.cookies.get(SESSION_COOKIE)) is not None,
         "nonce": getattr(request.state, "csp_nonce", ""),
         "lang": lang,

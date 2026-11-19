@@ -75,12 +75,53 @@
       </div>
     </div>
 
+    <section class="admin-card glass mt-4" id="researchCard">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <h2 class="mb-0">{{ icon('check-circle') }}Research-grade section</h2>
+        <label class="research-toggle">
+          <span class="switch"><input type="checkbox" id="researchEnabled"{% if state.research.enabled %} checked{% endif %}><span></span></span>
+          <b id="researchState">{{ 'ON' if state.research.enabled else 'OFF' }}</b><span>· show it on the site and in the profile README</span>
+        </label>
+      </div>
+      <p class="hint">Pick a repository, add who validated it, and say how, where and when it was used. While the switch is
+        <b>OFF</b>, nothing about research appears anywhere (site, navbar, API or profile README). When it is <b>ON</b>, every
+        card shows at the very top of the site as a big card with its validators, and the projects get a “Research-grade” badge.
+        Only public repositories that are shown on the site can be picked.</p>
+      <div class="research-admin-list" id="researchList" aria-live="polite"></div>
+
+      <form id="researchForm" class="profile-form research-form" novalidate>
+        <h3 class="mini-title" id="researchFormTitle">Add a research project</h3>
+        <div class="row g-3">
+          <div class="col-md-6"><label for="r-repo">Repository <small>(public repos on the site)</small></label>
+            <select class="field" id="r-repo" name="repo" required></select></div>
+          <div class="col-md-6"><label for="r-topic">Research topic <small>(optional)</small></label>
+            <input class="field" id="r-topic" name="topic" maxlength="160" placeholder="e.g. Lexical cohesion in AI-made comics"></div>
+          <div class="col-12">
+            <label>Validators <small>(who checked or used it — at least one)</small></label>
+            <div class="vrows" id="r-validators"></div>
+            <button type="button" class="btn-glass btn-sm mt-2" id="r-addValidator">{{ icon('plus') }}<span>Add validator</span></button>
+          </div>
+          <div class="col-12"><label for="r-usage">How it was used</label>
+            <textarea class="field" id="r-usage" name="usage" maxlength="2000" rows="4" placeholder="What was it used for, by whom, and what came out of it?"></textarea></div>
+          <div class="col-md-8"><label for="r-where">Where</label>
+            <input class="field" id="r-where" name="where" maxlength="200" placeholder="e.g. XYZ University, Pune"></div>
+          <div class="col-md-4"><label for="r-when">When</label>
+            <input class="field" id="r-when" name="when" type="date"></div>
+        </div>
+        <div class="d-flex flex-wrap gap-3 mt-3">
+          <button class="btn-glow" type="submit" id="researchSave">{{ icon('save') }}<span>Save research card</span></button>
+          <button class="btn-glass" type="button" id="researchCancel" hidden>{{ icon('times') }}<span>Cancel editing</span></button>
+          <span class="form-msg" id="researchMsg" aria-live="polite"></span>
+        </div>
+      </form>
+    </section>
+
     <section class="admin-card glass mt-4">
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
         <h2 class="mb-0">{{ icon('layer-group') }}Repositories</h2>
         <label class="check mt-0"><input type="checkbox" id="includeForks"{% if state.settings.include_forks %} checked{% endif %}> Show forked repositories on the site</label>
       </div>
-      <p class="hint">Change a group to override the AI (your choice is locked). <b>Featured</b> pins a project to the top;
+      <p class="hint">Change a group to override the AI (your choice is locked). <b>Other</b> is only ever chosen by you — the AI never puts a project there. <b>Featured</b> pins a project to the top;
         <b>Hidden</b> removes it from the public site. ↺ forgets the AI result so the repo counts as new again.</p>
       <div class="table-wrap">
         <table class="admin-table">

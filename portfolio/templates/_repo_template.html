@@ -1,10 +1,12 @@
 {# Overview for the project modal. Rendered once (inert <template>), cloned on click;
    the README tab is fetched from /api/projects/<name> only when opened. #}
 {% set status_label = t('ai_summary') if r.status == 'ai' else (t('curated') if r.status == 'manual' else t('ai_pending')) %}
+{% set rx = research_by_name.get(r.name) if research_by_name is defined and research_by_name else none %}
 <template id="tpl-{{ r.slug }}" data-name="{{ r.name }}" data-title="{{ r.title }}" data-url="{{ r.html_url }}" data-home="{{ r.homepage }}">
   <p class="m-summary">{{ r.summary or r.description or t('no_description') }}</p>
   <div class="m-chips">
     <span class="cat-chip"><i class="dot dot-{{ r.category }}"></i>{{ t('cat_' ~ r.category) }}</span>
+    {% if rx %}<span class="research-chip">{{ icon('check-circle') }}{{ t('research_chip') }}</span>{% endif %}
     <span class="ai-chip ai-{{ r.status }}">{{ icon('magic' if r.status == 'ai' else ('check' if r.status == 'manual' else 'clock')) }}{{ status_label }}{% if r.model %} · {{ r.model }}{% endif %}</span>
     {% if r.featured %}<span class="feat-chip">{{ icon('thumbtack') }}{{ t('featured') }}</span>{% endif %}
   </div>
@@ -13,6 +15,31 @@
     <button type="button" class="m-tab" role="tab" aria-selected="false" data-tab="readme">{{ icon('book-open') }}<span>{{ t('tab_readme') }}</span></button>
   </div>
   <div class="m-panel" data-panel="overview" role="tabpanel">
+    {% if rx %}
+    <section class="m-card m-research">
+      <h4>{{ icon('shield') }}{{ t('research_validated_by') }} <b class="rv-count">{{ rx.validators|length }}</b></h4>
+      <ul class="validators">
+        {% for v in rx.validators %}
+        <li class="validator">
+          <span class="v-tick" aria-hidden="true">{{ icon('check') }}</span>
+          <div class="v-body">
+            <b class="v-name">{{ v.name }}</b>
+            <span class="v-kind">{{ t('vk_' ~ v.kind) }}</span>
+            {% if v.organisation %}<span class="v-org">{{ v.organisation }}</span>{% endif %}
+            {% if v.link %}<a class="v-link" href="{{ v.link }}" target="_blank" rel="noopener nofollow">{{ t('research_proof') }}{{ icon('external-link') }}</a>{% endif %}
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% if rx.usage or rx.where or rx.when %}
+      <dl class="rcard-facts">
+        {% if rx.usage %}<div class="rf rf-wide"><dt>{{ icon('users') }}{{ t('research_how') }}</dt><dd class="rf-text">{{ rx.usage }}</dd></div>{% endif %}
+        {% if rx.where %}<div class="rf"><dt>{{ icon('map-marker') }}{{ t('research_where') }}</dt><dd>{{ rx.where }}</dd></div>{% endif %}
+        {% if rx.when %}<div class="rf"><dt>{{ icon('clock') }}{{ t('research_when') }}</dt><dd><time class="date" datetime="{{ rx.when }}">{{ rx.when }}</time></dd></div>{% endif %}
+      </dl>
+      {% endif %}
+    </section>
+    {% endif %}
     <div class="row g-3">
       <div class="col-lg-7 d-flex flex-column gap-3">
         {% if r.problem %}

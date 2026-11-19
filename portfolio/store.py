@@ -68,6 +68,8 @@ def empty_doc() -> dict[str, Any]:
         "synced_at": None,
         "profile": default_profile(),
         "settings": {"hidden": [], "featured": [], "include_forks": False},
+        # Research-grade projects: off until switched on in /admin (see portfolio/research.py).
+        "research": {"enabled": False, "entries": []},
         "github": {
             "user": {},
             "profile_readme_html": "",

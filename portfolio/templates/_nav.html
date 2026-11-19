@@ -30,6 +30,9 @@
             aria-controls="navMenu" aria-expanded="false" aria-label="Menu">{{ icon('bars') }}</button>
     <div class="collapse navbar-collapse" id="navMenu">
       <ul class="navbar-nav ms-auto align-items-lg-center">
+        {% if nav_research %}
+        <li class="nav-item"><a class="nav-link nav-research" href="{{ '#research' if home else link('/#research') }}">{{ icon('check-circle') }}<span>{{ t('nav_research') }}</span></a></li>
+        {% endif %}
         <li class="nav-item"><a class="nav-link" href="{{ '#projects' if home else link('/#projects') }}">{{ t('nav_projects') }}</a></li>
         {% if nav_stats %}
         <li class="nav-item"><a class="nav-link" href="{{ '#stats' if home else link('/#stats') }}">{{ t('nav_stats') }}</a></li>

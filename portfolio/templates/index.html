@@ -67,6 +67,72 @@
   </div>
 </section>
 
+{# ================================================================ RESEARCH
+   Shown first, above every other project - but only while switched on in /admin AND at
+   least one public, visible repository has a research card. Otherwise nothing renders. #}
+{% if research %}
+<section class="section section-research" id="research">
+  <div class="container">
+    <header class="section-head reveal">
+      <img class="section-icon" src="{{ i8('brain') }}" alt="" width="56" height="56" loading="lazy" decoding="async">
+      <div>
+        <h2 class="section-title">{{ t('research_title') }} <span class="group-count">{{ research|length }}</span></h2>
+        <p class="section-sub">{{ icon('check-circle') }}<span>{{ t('research_sub') }}</span></p>
+      </div>
+    </header>
+    <div class="research-list">
+      {% for x in research %}
+      <article class="rcard glass reveal" id="research-{{ x.slug }}">
+        <span class="rcard-glow" aria-hidden="true"></span>
+        <header class="rcard-head">
+          <div class="rcard-chips">
+            <span class="research-chip">{{ icon('check-circle') }}{{ t('research_chip') }}</span>
+            <span class="cat-chip"><i class="dot dot-{{ x.category }}"></i>{{ t('cat_' ~ x.category) }}</span>
+          </div>
+          <h3 class="rcard-title">{{ x.title }}</h3>
+          <p class="pcard-repo">{{ icon('github') }}<span>{{ x.name }}</span></p>
+          {% if x.topic %}<p class="rcard-topic">{{ icon('lightbulb') }}<span><b>{{ t('research_topic') }}:</b> {{ x.topic }}</span></p>{% endif %}
+        </header>
+
+        <section class="rcard-validation" aria-label="{{ t('research_validated_by') }}">
+          <h4 class="rv-title">{{ icon('shield') }}<span>{{ t('research_validated_by') }}</span><b class="rv-count">{{ x.validators|length }}</b></h4>
+          <ul class="validators">
+            {% for v in x.validators %}
+            <li class="validator">
+              <span class="v-tick" aria-hidden="true">{{ icon('check') }}</span>
+              <div class="v-body">
+                <b class="v-name">{{ v.name }}</b>
+                <span class="v-kind">{{ t('vk_' ~ v.kind) }}</span>
+                {% if v.organisation %}<span class="v-org">{{ v.organisation }}</span>{% endif %}
+                {% if v.link %}<a class="v-link" href="{{ v.link }}" target="_blank" rel="noopener nofollow">{{ t('research_proof') }}{{ icon('external-link') }}</a>{% endif %}
+              </div>
+            </li>
+            {% endfor %}
+          </ul>
+        </section>
+
+        {% if x.usage or x.where or x.when %}
+        <dl class="rcard-facts">
+          {% if x.usage %}<div class="rf rf-wide"><dt>{{ icon('users') }}{{ t('research_how') }}</dt><dd class="rf-text">{{ x.usage }}</dd></div>{% endif %}
+          {% if x.where %}<div class="rf"><dt>{{ icon('map-marker') }}{{ t('research_where') }}</dt><dd>{{ x.where }}</dd></div>{% endif %}
+          {% if x.when %}<div class="rf"><dt>{{ icon('clock') }}{{ t('research_when') }}</dt><dd><time class="date" datetime="{{ x.when }}">{{ x.when }}</time></dd></div>{% endif %}
+        </dl>
+        {% endif %}
+
+        {% if x.summary %}<p class="rcard-summary">{{ x.summary }}</p>{% endif %}
+
+        <div class="rcard-actions">
+          <button type="button" class="btn-glow btn-sm" data-open="{{ x.name }}">{{ icon('layer-group') }}<span>{{ t('view_details') }}</span></button>
+          {% if x.html_url %}<a class="btn-glass btn-sm" href="{{ x.html_url }}" target="_blank" rel="noopener">{{ icon('github') }}<span>{{ t('view_github') }}</span></a>{% endif %}
+          {% if x.homepage %}<a class="btn-glass btn-sm" href="{{ x.homepage }}" target="_blank" rel="noopener">{{ icon('external-link') }}<span>{{ t('live_demo') }}</span></a>{% endif %}
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
 {# ================================================================ ABOUT #}
 {% if bio_paragraphs or skills or interests %}
 <section class="section" id="about">
@@ -110,6 +176,7 @@
         <button type="button" class="seg-btn is-active" role="tab" aria-selected="true" data-filter="all">{{ icon('layer-group') }}<span>{{ t('cat_all') }}</span><b>{{ counts.all }}</b></button>
         <button type="button" class="seg-btn" role="tab" aria-selected="false" data-filter="social"><i class="dot dot-social"></i><span>{{ t('cat_social') }}</span><b>{{ counts.social }}</b></button>
         <button type="button" class="seg-btn" role="tab" aria-selected="false" data-filter="industry"><i class="dot dot-industry"></i><span>{{ t('cat_industry') }}</span><b>{{ counts.industry }}</b></button>
+        {% if counts.other %}<button type="button" class="seg-btn" role="tab" aria-selected="false" data-filter="other"><i class="dot dot-other"></i><span>{{ t('cat_other') }}</span><b>{{ counts.other }}</b></button>{% endif %}
       </div>
       <label class="search-box">{{ icon('search') }}<span class="visually-hidden">{{ t('search') }}</span>
         <input type="search" id="projectSearch" placeholder="{{ t('search') }}" autocomplete="off" spellcheck="false" maxlength="80">

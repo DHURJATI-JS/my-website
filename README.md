@@ -3,6 +3,7 @@
 A lightweight, animated portfolio for **[github.com/DHURJATI-JS](https://github.com/DHURJATI-JS)**.
 An AI reads every repository's README, groups the project as **Social impact** or **Industry & startup**,
 and writes a polished summary. Visitors open any project in an MDBootstrap modal (AI overview + the full README).
+You can also move a project to **Other** by hand, and show **research-grade projects** with their validators at the top.
 
 FastAPI · Jinja2 · MDBootstrap 9 (CDN) · Icons8 (3D icons + Line Awesome) · 7 languages · dark/light theme
 
@@ -51,9 +52,22 @@ tech stack, audience). Once saved, a repo's group is **permanent**.
 | **1 · Sync GitHub details** | Refresh repo details, READMEs, issues and activity. No AI, nothing re-grouped. |
 | **2 · Categorise NEW repos only** *(recommended)* | Sync, then the AI reads only repos **not yet in the JSON**. Old groups stay. |
 | **3 · Re-verify & re-categorise ALL** | Sync, then the AI re-reads every README (optionally overriding your manual choices). |
-| Per repo | Change the group (locks it), **Featured**, **Hidden**, re-run AI, or “forget” the result (→ new again). |
+| Per repo | Change the group (locks it) — **Social impact**, **Industry & startup** or **Other** (Other is only ever chosen by you, never by the AI) — **Featured**, **Hidden**, re-run AI, or “forget” the result (→ new again). |
+| Research-grade section | An ON/OFF switch (**OFF** by default) plus one card per research project: pick a public repo, add its validators (type, name, organisation, optional proof link), and how, where and when it was used. See below. |
 | Profile | Name, headline, biography, age or birth date (age auto-updates), location, education, skills, links… |
 | Data | Download the JSON. |
+
+### Research-grade projects
+* Switch the section **ON/OFF** in `/admin` → *Research-grade section*. It starts **OFF**.
+* While it is OFF — or ON but with no card for a repository that is shown on the site — nothing about research
+  appears anywhere: no section, no navbar link, no badges, and `/api/research` returns no projects.
+* While it is ON, each research project gets a **big card at the very top of the home page** (above everything
+  else), with its validators first, then how, where and when it was used. Its normal project card and its modal
+  get a “Research-grade” badge and the same validator list.
+* Only public repositories that are shown on the site can be picked. If a repo later becomes private, is
+  deleted or is hidden, its research card disappears from the site automatically (it stays in `/admin`).
+* Data lives in `data/portfolio.json` under `research` (same single source of truth). The profile README
+  (`DHURJATI-JS/DHURJATI-JS`) reads `/api/research` and shows the same projects at its top.
 
 ### Automation for new repositories
 * **Self-hosted / local:** a background loop syncs GitHub and categorises *new* repos every
@@ -122,8 +136,8 @@ Start Docker Desktop first.
 * **Login** button — becomes **Dashboard** while you are signed in.
 
 ## Public JSON API
-`/api/projects` · `/api/projects/{name}` (incl. README HTML) · `/api/profile` · `/api/profile-readme` ·
-`/api/ai-status` · `/healthz`
+`/api/projects` · `/api/projects/{name}` (incl. README HTML) · `/api/research` (research-grade projects; empty while
+switched off) · `/api/profile` · `/api/profile-readme` · `/api/ai-status` · `/healthz`
 
 ## Project layout
 ```

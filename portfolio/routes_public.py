@@ -50,6 +50,14 @@ def api_project(request: Request, name: str):
     return JSONResponse(detail, headers={"Cache-Control": _PUBLIC_CACHE})
 
 
+@router.get("/api/research")
+@limiter.limit(rl.API)
+def api_research(request: Request):
+    """Research-grade projects (empty while the section is switched off in /admin)."""
+    items = [views.public_research(x) for x in views.research_cards()]
+    return JSONResponse({"enabled": bool(items), "projects": items}, headers={"Cache-Control": _PUBLIC_CACHE})
+
+
 @router.get("/api/profile")
 @limiter.limit(rl.API)
 def api_profile(request: Request):

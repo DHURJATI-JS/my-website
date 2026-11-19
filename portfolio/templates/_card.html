@@ -4,6 +4,7 @@
   <span class="pcard-glow" aria-hidden="true"></span>
   <div class="pcard-top">
     <span class="cat-chip"><i class="dot dot-{{ r.category }}"></i>{{ t('cat_' ~ r.category) }}</span>
+    {% if r.research %}<span class="research-chip">{{ icon('check-circle') }}{{ t('research_chip') }}</span>{% endif %}
     {% if r.featured %}<span class="feat-chip">{{ icon('thumbtack') }}{{ t('featured') }}</span>{% endif %}
     <span class="ai-chip ai-{{ r.status }}"{% if r.model %} title="{{ r.model }}"{% endif %}>{{ icon('magic' if r.status == 'ai' else ('check' if r.status == 'manual' else 'clock')) }}{{ status_label }}</span>
   </div>

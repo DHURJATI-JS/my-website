@@ -1,4 +1,4 @@
-"""Admin panel: login (credentials from .env), AI categorisation, profile editor."""
+"""Admin panel: login (credentials from .env), AI categorisation, research cards, profile editor."""
 from __future__ import annotations
 
 import json
@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
-from . import ai, jobs, ratelimit as rl, security, views
+from . import ai, jobs, ratelimit as rl, research, security, views
 from .config import settings
 from .github import GitHubError, safe_url
 from .ratelimit import limiter
@@ -117,7 +117,7 @@ class NameBody(BaseModel):
 
 
 class OverrideBody(NameBody):
-    category: Literal["social", "industry"]
+    category: Literal["social", "industry", "other"]  # "other" can only be chosen by hand
     locked: bool = True
 
 
@@ -157,6 +157,34 @@ class ProfileBody(BaseModel):
     show_age: bool = True
     show_stats: bool = True
     show_activity: bool = True
+
+
+ValidatorKind = Literal[tuple(research.VALIDATOR_KINDS)]  # type: ignore[valid-type]
+
+
+class ValidatorBody(BaseModel):
+    kind: ValidatorKind = "other"
+    name: str = Field(min_length=1, max_length=120)
+    organisation: str = Field("", max_length=160)
+    link: str = Field("", max_length=300)
+
+
+class ResearchBody(BaseModel):
+    id: str = Field("", max_length=24, pattern=r"^[a-f0-9]*$")  # empty = new card
+    repo: str = Field(min_length=1, max_length=120)
+    topic: str = Field("", max_length=160)
+    validators: list[ValidatorBody] = Field(min_length=1, max_length=research.MAX_VALIDATORS)
+    usage: str = Field("", max_length=2000)
+    where: str = Field("", max_length=200)
+    when: str = Field("", max_length=10, pattern=r"^(\d{4}-\d{2}-\d{2})?$")
+
+
+class ResearchToggleBody(BaseModel):
+    enabled: bool
+
+
+class ResearchIdBody(BaseModel):
+    id: str = Field(min_length=1, max_length=24, pattern=r"^[a-f0-9]+$")
 
 
 def _bad_gateway(exc: Exception) -> HTTPException:
@@ -277,6 +305,72 @@ def api_profile(request: Request, body: ProfileBody, session: dict = Depends(req
         data[field] = [item.strip() for item in data[field] if item.strip()]
     store.mutate(lambda doc: doc["profile"].update(data))
     return {"profile": store.get()["profile"]}
+
+
+@router.post("/api/research/toggle")
+@limiter.limit(rl.ADMIN)
+def api_research_toggle(request: Request, body: ResearchToggleBody, session: dict = Depends(require_csrf)):
+    def apply(doc: dict) -> None:
+        doc["research"] = {**research.section(doc), "enabled": body.enabled}
+
+    store.mutate(apply)
+    return {"research": views.admin_research(store.get())}
+
+
+@router.post("/api/research/save")
+@limiter.limit(rl.ADMIN)
+def api_research_save(request: Request, body: ResearchBody, session: dict = Depends(require_csrf)):
+    visible = {c["name"].lower(): c["name"] for c in views.project_cards()}
+    repo = visible.get(body.repo.strip().lower())
+    if not repo:
+        # Only repositories shown on the site can be picked - never private, deleted or hidden ones.
+        raise HTTPException(status_code=422, detail="Pick a public repository that is shown on the site.")
+    validators = []
+    for v in body.validators:
+        name = v.name.strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="Every validator needs a name.")
+        link = safe_url(v.link)
+        if v.link.strip() and not link:
+            raise HTTPException(status_code=422, detail=f"{name}: the proof link must be a full https:// address.")
+        validators.append({"kind": v.kind, "name": name, "organisation": v.organisation.strip(), "link": link})
+    record = {"repo": repo, "topic": body.topic.strip(), "validators": validators,
+              "usage": body.usage.strip(), "where": body.where.strip(), "when": body.when}
+
+    def apply(doc: dict) -> None:
+        section = research.section(doc)
+        items = research.entries(doc)
+        clash = next((e for e in items if e["repo"].lower() == repo.lower() and e["id"] != body.id), None)
+        if clash:
+            raise HTTPException(status_code=409, detail=f"{repo} already has a research card - edit that one instead.")
+        stamp = now_iso()
+        if body.id:
+            current = next((e for e in items if e["id"] == body.id), None)
+            if current is None:
+                raise HTTPException(status_code=404, detail="That research card no longer exists - reload the page.")
+            current.update(record, updated_at=stamp)
+        else:
+            if len(items) >= research.MAX_ENTRIES:
+                raise HTTPException(status_code=422, detail=f"You can have up to {research.MAX_ENTRIES} research cards.")
+            items.append({"id": research.new_id(), **record, "created_at": stamp, "updated_at": stamp})
+        doc["research"] = {**section, "entries": items}
+
+    store.mutate(apply)
+    return {"research": views.admin_research(store.get())}
+
+
+@router.post("/api/research/delete")
+@limiter.limit(rl.ADMIN)
+def api_research_delete(request: Request, body: ResearchIdBody, session: dict = Depends(require_csrf)):
+    def apply(doc: dict) -> None:
+        items = research.entries(doc)
+        kept = [e for e in items if e["id"] != body.id]
+        if len(kept) == len(items):
+            raise HTTPException(status_code=404, detail="That research card no longer exists - reload the page.")
+        doc["research"] = {**research.section(doc), "entries": kept}
+
+    store.mutate(apply)
+    return {"research": views.admin_research(store.get())}
 
 
 @router.get("/api/ai-status")

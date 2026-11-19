@@ -5,12 +5,13 @@ import re
 from datetime import date
 from typing import Any
 
-from . import ai
+from . import ai, research
 from .config import settings
 from .github import safe_url
 from .store import store
 
-GROUP_ICONS = {"social": "handshake", "industry": "rocket"}
+GROUP_ICONS = {"social": "handshake", "industry": "rocket", "other": "code"}
+CATEGORY_KEYS = ("social", "industry", "other")  # "other" is only ever chosen by hand in /admin
 _SMALL_WORDS = {"and", "or", "of", "the", "a", "an", "for", "from", "to", "in", "on", "with", "by"}
 _ACRONYMS = {"ai": "AI", "mvp": "MVP", "api": "API", "ui": "UI", "ux": "UX", "ml": "ML", "llm": "LLM",
              "hr": "HR", "crm": "CRM", "erp": "ERP", "sql": "SQL", "iot": "IoT", "ar": "AR", "vr": "VR",
@@ -141,6 +142,8 @@ def project_cards() -> list[dict[str, Any]]:
     if _cards_cache["rev"] == store.revision:
         return _cards_cache["cards"]
     featured = [n.lower() for n in doc["settings"].get("featured", [])]
+    research_names = ({e["repo"].lower() for e in research.entries(doc)}
+                      if research.section(doc).get("enabled") else set())
     open_issues: dict[str, int] = {}
     for issue in doc["github"].get("issues") or []:
         if issue.get("state") == "open":
@@ -169,12 +172,52 @@ def project_cards() -> list[dict[str, Any]]:
             "updated_at": entry.get("pushed_at") or entry.get("updated_at") or "",
             "featured": name.lower() in featured, "featured_rank": featured.index(name.lower()) if name.lower() in featured else 999,
             "archived": bool(entry.get("archived")), "has_readme": bool(entry.get("readme_html")),
+            "research": name.lower() in research_names,
         }
         cards.append(card)
     cards.sort(key=lambda c: c["updated_at"], reverse=True)
     cards.sort(key=lambda c: c["featured_rank"])
     _cards_cache.update(rev=store.revision, cards=cards)
     return cards
+
+
+_research_cache: dict[str, Any] = {"rev": None, "items": []}
+
+
+def research_cards() -> list[dict[str, Any]]:
+    """Research-grade projects for the public site and API.
+
+    Empty while the admin switch is off, and an entry only appears while its repository is
+    visible on the site (public, not hidden, not an excluded fork) - so private repos never show.
+    """
+    doc = store.get()
+    if _research_cache["rev"] == store.revision:
+        return _research_cache["items"]
+    items: list[dict[str, Any]] = []
+    if research.section(doc).get("enabled"):
+        cards = {c["name"].lower(): c for c in project_cards()}
+        seen: set[str] = set()
+        for entry in research.ordered(research.entries(doc)):
+            card = cards.get(entry["repo"].lower())
+            if not card or card["name"].lower() in seen:
+                continue
+            seen.add(card["name"].lower())
+            validators = [{**v, "link": safe_url(v["link"])} for v in research.validators(entry)]
+            items.append({
+                "id": entry["id"], "name": card["name"], "slug": card["slug"], "title": card["title"],
+                "topic": entry.get("topic", ""), "summary": card["summary"], "category": card["category"],
+                "html_url": card["html_url"], "homepage": card["homepage"], "tech": card["tech"],
+                "validators": validators, "usage": entry.get("usage", ""), "where": entry.get("where", ""),
+                "when": entry.get("when", ""),
+            })
+    _research_cache.update(rev=store.revision, items=items)
+    return items
+
+
+def public_research(item: dict[str, Any]) -> dict[str, Any]:
+    keys = ("name", "title", "topic", "summary", "category", "html_url", "homepage", "tech",
+            "validators", "usage", "where", "when")
+    return {key: item[key] for key in keys}
 
 
 PUBLIC_FIELDS = ("name", "title", "description", "summary", "problem", "key_points", "reason", "audience",
@@ -199,7 +242,7 @@ def home(doc: dict[str, Any]) -> dict[str, Any]:
     cards = project_cards()
     profile = doc["profile"]
     groups = []
-    for key in ("social", "industry"):
+    for key in CATEGORY_KEYS:
         repos = [c for c in cards if c["category"] == key]
         groups.append({"key": key, "icon": GROUP_ICONS[key], "repos": repos})
     user = doc["github"].get("user") or {}
@@ -217,7 +260,10 @@ def home(doc: dict[str, Any]) -> dict[str, Any]:
         "cards": cards,
         "groups": groups,
         "counts": {"all": len(cards), "social": len(groups[0]["repos"]), "industry": len(groups[1]["repos"]),
+                   "other": len(groups[2]["repos"]),
                    "stars": sum(c["stars"] for c in cards), "followers": user.get("followers") or 0},
+        "research": research_cards(),
+        "research_by_name": {x["name"]: x for x in research_cards()},
         "profile": profile,
         "headline": profile.get("headline", ""),
         "bio_paragraphs": [p.strip() for p in re.split(r"\n\s*\n", bio) if p.strip()],
@@ -283,6 +329,48 @@ def admin_repo(name: str) -> dict[str, Any] | None:
     return None
 
 
+def admin_research(doc: dict[str, Any]) -> dict[str, Any]:
+    """Everything the admin research card needs. The repo picker only offers repositories that
+    are visible on the site, so a private, deleted or hidden repo can't be chosen."""
+    section = research.section(doc)
+    visible = {c["name"].lower(): c for c in project_cards()}
+    by_name = {e.get("name", "").lower(): e for e in doc["repos"].values() if e.get("name")}
+    hidden = {n.lower() for n in doc["settings"].get("hidden", [])}
+    taken = set()
+    entries = []
+    for entry in research.ordered(research.entries(doc)):
+        key = entry["repo"].lower()
+        taken.add(key)
+        card = visible.get(key)
+        repo = by_name.get(key)
+        if card:
+            status = "shown" if section.get("enabled") else "ready"
+        elif repo is None or repo.get("gone"):
+            status = "not_public"
+        elif key in hidden:
+            status = "hidden"
+        else:
+            status = "fork"
+        entries.append({
+            "id": entry["id"], "repo": card["name"] if card else entry["repo"],
+            "title": card["title"] if card else pretty_title(entry["repo"]), "status": status,
+            "topic": entry.get("topic", ""), "validators": research.validators(entry),
+            "usage": entry.get("usage", ""), "where": entry.get("where", ""), "when": entry.get("when", ""),
+            "updated_at": entry.get("updated_at", ""),
+        })
+    repos = [{"name": c["name"], "title": c["title"], "taken": c["name"].lower() in taken}
+             for c in sorted(visible.values(), key=lambda c: c["title"].lower())]
+    return {
+        "enabled": bool(section.get("enabled")),
+        "entries": entries,
+        "shown": sum(e["status"] == "shown" for e in entries),
+        "repos": repos,
+        "kinds": [{"key": k, "label": v} for k, v in research.VALIDATOR_KINDS.items()],
+        "max_entries": research.MAX_ENTRIES,
+        "max_validators": research.MAX_VALIDATORS,
+    }
+
+
 def admin_state() -> dict[str, Any]:
     doc = store.get()
     rows = sorted((admin_repo_row(k, e, doc) for k, e in doc["repos"].items()), key=lambda r: r["name"].lower())
@@ -307,11 +395,13 @@ def admin_state() -> dict[str, Any]:
         "ai": sum(r["status"] == "ai" for r in rows if not r["gone"]),
         "manual": sum(r["status"] == "manual" for r in rows if not r["gone"]),
         "pending": sum(r["status"] == "pending" for r in rows if not r["gone"] and (not r["fork"] or doc["settings"].get("include_forks"))),
+        "other": sum(r["category"] == "other" for r in rows if not r["gone"]),
     }
     return {
         "repos": rows,
         "profile": doc["profile"],
         "settings": doc["settings"],
+        "research": admin_research(doc),
         "synced_at": doc.get("synced_at"),
         "updated_at": doc.get("updated_at"),
         "storage": storage,
