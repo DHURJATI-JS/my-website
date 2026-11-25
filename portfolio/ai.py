@@ -14,9 +14,12 @@ the repo is still treated as "new" and the AI analyses it on the next run.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import ipaddress
 import json
 import re
+import secrets
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -37,14 +40,15 @@ class Provider:
     base_url: str = field(repr=False)  # never printed, logged or sent to a browser
     api_key: str = field(repr=False)
     model: str
+    signed: bool = False               # tunnel: sign each request with the key instead of sending it
 
 
 ENDPOINT_PURPOSE = "ai-endpoint"
 endpoint_status = {"problem": ""}  # shown on the admin page when the sealed record can't be used
 
 
-def published_gateway() -> tuple[str, str]:
-    """(address, key) of the gateway's Cloudflare tunnel, from the data Gist; ("", "") if none.
+def published_gateway() -> tuple[str, str, bool]:
+    """(address, key, signed) of the gateway's Cloudflare tunnel, from the data Gist; ("", "", False) if none.
 
     scripts/start-tunnel.ps1 starts the tunnel on the home PC and, each time its random address
     changes, scripts/publish_endpoint.py seals {"url", "key"} with SECRET_KEY into the Gist file
@@ -52,30 +56,62 @@ def published_gateway() -> tuple[str, str]:
     """
     name = settings.ai_endpoint_file
     if not name or settings.storage_backend != "gist":
-        return "", ""
+        return "", "", False
     try:
         from .store import store  # local import: store must not import ai
 
         raw = store.extra_file(name)
         data = json.loads(raw) if raw else {}
     except Exception:  # noqa: BLE001 - never let this break the site
-        return "", ""
+        return "", "", False
     if not isinstance(data, dict) or not data:
-        return "", ""
+        return "", "", False
+    signed = False
     if "box" in data:
         opened = sealed.open_sealed(data, settings.secret_key, ENDPOINT_PURPOSE)
         if not opened:
             endpoint_status["problem"] = ("The gateway's sealed tunnel record can't be opened: SECRET_KEY in the "
                                           "PC's .env must be the same as on Vercel.")
-            return "", ""
+            return "", "", False
         url, key = str(opened.get("url") or ""), str(opened.get("key") or "")
+        signed = opened.get("auth") == "sig1"
     else:  # an older plain record (address only) - replaced by a sealed one when the PC's tunnel restarts
         url, key = str(data.get("url") or ""), settings.ai_primary_key
     url = url.strip().rstrip("/")
-    if not url.startswith("https://"):
-        return "", ""
+    if not url.startswith("https://") or (signed and len(key) < 32):
+        return "", "", False
     endpoint_status["problem"] = ""
-    return url, key
+    return url, key, signed
+
+
+def _sign(key: str, *parts: str) -> str:
+    return hmac.new(key.encode("utf-8"), "\n".join(parts).encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _send(provider: Provider, method: str, path: str, body: bytes | None, *, connect_timeout: float,
+          read_timeout: float) -> httpclient.Response:
+    """One request to a provider. For the tunnel the key is never sent: the request is signed
+    (time + one-time nonce + body) and only an answer signed back by the gateway is accepted."""
+    url = f"{provider.base_url}{path}"
+    if not provider.signed:
+        headers = {"Authorization": f"Bearer {provider.api_key}"} if provider.api_key else {}
+        return httpclient.request(method, url, headers=headers, raw_body=body, connect_timeout=connect_timeout,
+                                  read_timeout=read_timeout)
+    stamp, nonce = str(int(time.time())), secrets.token_hex(16)
+    payload = body or b""
+    headers = {
+        "X-Gateway-Time": stamp,
+        "X-Gateway-Nonce": nonce,
+        "X-Gateway-Signature": _sign(provider.api_key, "gw1", method, urlsplit(url).path, stamp, nonce,
+                                     hashlib.sha256(payload).hexdigest()),
+    }
+    resp = httpclient.request(method, url, headers=headers, raw_body=body, connect_timeout=connect_timeout,
+                              read_timeout=read_timeout, follow_redirects=False)
+    if resp.status == 200:
+        want = _sign(provider.api_key, "gw1-reply", nonce, "200", hashlib.sha256(resp.body).hexdigest())
+        if not hmac.compare_digest(want, resp.headers.get("x-gateway-reply", "")):
+            raise httpclient.FetchError("the answer wasn't signed by your gateway")
+    return resp
 
 
 _URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://[^\s'\"<>()]+", re.I)
@@ -114,11 +150,11 @@ _last_chain: list[Provider] = []
 def providers() -> list[Provider]:
     chain = []
     # On Vercel the LAN address is unreachable, so prefer the published tunnel.
-    tunnel_url, tunnel_key = (published_gateway() if (settings.on_vercel or not settings.ai_primary_url)
-                              else ("", ""))
+    tunnel_url, tunnel_key, tunnel_signed = (published_gateway() if (settings.on_vercel or not settings.ai_primary_url)
+                                             else ("", "", False))
     if tunnel_url:
         chain.append(Provider("gateway", "OpenAI gateway (Cloudflare tunnel)", tunnel_url,
-                              tunnel_key, settings.ai_primary_model))
+                              tunnel_key, settings.ai_primary_model, signed=tunnel_signed))
     elif settings.ai_primary_url:
         chain.append(Provider("gateway", "OpenAI gateway", settings.ai_primary_url,
                               settings.ai_primary_key, settings.ai_primary_model))
@@ -226,11 +262,9 @@ def _chat(provider: Provider, prompt: str, *, structured: bool, schema: dict[str
             "type": "json_schema",
             "json_schema": {"name": name, "strict": True, "schema": schema or SCHEMA},
         }
-    headers = {"Authorization": f"Bearer {provider.api_key}"} if provider.api_key else {}
     try:
-        resp = httpclient.request("POST", f"{provider.base_url}/chat/completions", headers=headers,
-                                  json_body=payload, connect_timeout=settings.ai_connect_timeout,
-                                  read_timeout=settings.ai_read_timeout)
+        resp = _send(provider, "POST", "/chat/completions", json.dumps(payload).encode("utf-8"),
+                     connect_timeout=settings.ai_connect_timeout, read_timeout=settings.ai_read_timeout)
     except httpclient.FetchError as exc:
         raise AIError(f"{provider.label} unreachable ({redact(exc, provider)})") from None
     if resp.status >= 400:
@@ -406,10 +440,9 @@ def translate(fields: dict[str, Any], lang: str) -> dict[str, Any]:
 
 def ping(provider: Provider) -> dict[str, Any]:
     started = time.monotonic()
-    headers = {"Authorization": f"Bearer {provider.api_key}"} if provider.api_key else {}
     try:
-        resp = httpclient.request("GET", f"{provider.base_url}/models", headers=headers,
-                                  connect_timeout=min(3.0, settings.ai_connect_timeout), read_timeout=6)
+        resp = _send(provider, "GET", "/models", None,
+                     connect_timeout=min(3.0, settings.ai_connect_timeout), read_timeout=6)
         ok = resp.ok
         models = []
         if ok:

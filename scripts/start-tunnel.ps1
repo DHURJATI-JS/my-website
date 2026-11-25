@@ -15,7 +15,9 @@
 #                SITE_URL + CRON_SECRET for step 4. Optional: AI_TUNNEL_ORIGIN, PYTHON.
 # Needs Python 3 (the gateway already uses it) and cloudflared:  winget install --id Cloudflare.cloudflared
 # Usage:  powershell -ExecutionPolicy Bypass -File scripts\start-tunnel.ps1
-# Run at every logon:  powershell -ExecutionPolicy Bypass -File scripts\install-tunnel-task.ps1
+# Run at every logon: a shortcut to scripts\start-tunnel.cmd in your Startup folder (Win+R, shell:startup),
+#                     or the scheduled task from scripts\install-tunnel-task.ps1. Only one copy ever runs:
+#                     a second start (Startup folder + task, or a double-click) just exits.
 param(
     [string]$Origin = ""   # override the gateway's internet door (default http://127.0.0.1:8001)
 )
@@ -26,6 +28,21 @@ $root = Split-Path $PSScriptRoot -Parent
 $logDir = Join-Path $env:LOCALAPPDATA "portfolio-tunnel"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $logFile = Join-Path $logDir "tunnel.log"
+function Log([string]$msg) {
+    $line = "{0}  {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $msg
+    Write-Host $line
+    try { Add-Content -Path $logFile -Value $line } catch {}
+}
+
+# One copy at a time - before anything else, so a second copy can't stop the first one's tunnel.
+$mutex = New-Object System.Threading.Mutex($false, "Local\PortfolioAITunnel")
+$owned = $false
+try { $owned = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
+if (-not $owned) {
+    Log "The tunnel script is already running - this copy exits."
+    exit 0
+}
+
 # Older versions of this script wrote the tunnel's address into the log - take those out.
 if (Test-Path $logFile) {
     try {
@@ -33,12 +50,6 @@ if (Test-Path $logFile) {
         $clean = [regex]::Replace($old, 'https://[a-z0-9-]+\.trycloudflare\.com\S*', '[address hidden]')
         if ($clean -ne $old) { Set-Content -Path $logFile -Value $clean -NoNewline }
     } catch {}
-}
-
-function Log([string]$msg) {
-    $line = "{0}  {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $msg
-    Write-Host $line
-    Add-Content -Path $logFile -Value $line
 }
 
 function Read-DotEnv([string]$path) {
@@ -77,6 +88,11 @@ if ([string]::IsNullOrWhiteSpace($Origin)) { $Origin = Get-Setting $envVals "AI_
 $originUri = [Uri]$Origin
 $apiPath = "/v1"
 $publisher = Join-Path $PSScriptRoot "publish_endpoint.py"
+# The gateway's keys (publish_endpoint.py reads the same file); a change is published again.
+$keysFile = Get-Setting $envVals "AI_GATEWAY_KEYS_FILE" (Join-Path (Split-Path $root -Parent) "AI Server\gateway-keys.json")
+function Get-KeysStamp {
+    try { return (Get-Item -LiteralPath $keysFile -ErrorAction Stop).LastWriteTimeUtc.Ticks } catch { return 0 }
+}
 
 # Python for publish_endpoint.py (standard library only): PYTHON in .env, else python, else the py launcher.
 $python = @()
@@ -177,6 +193,7 @@ while ($true) {
         # Publish once the gateway answers (it creates gateway-keys.json on its first start).
         $up = Wait-Origin 900
         if (-not $up) { Log "Gateway $Origin not up after 15 min - publishing anyway" }
+        $keysStamp = Get-KeysStamp
         $published = Publish-Sealed $api
         if ($published) {
             Log "Tunnel up (address kept private - sealed record published)"
@@ -190,7 +207,13 @@ while ($true) {
         $nextTry = (Get-Date).AddMinutes(2)
         while (-not $proc.HasExited) {
             Start-Sleep -Seconds 15
+            if ($published -and (Get-KeysStamp) -ne $keysStamp) {
+                Log "The gateway's keys changed - publishing the sealed record again"
+                $published = $false
+                $nextTry = Get-Date
+            }
             if (-not $published -and (Get-Date) -ge $nextTry) {
+                $keysStamp = Get-KeysStamp
                 $published = Publish-Sealed $api
                 if ($published) { Log "Sealed record published (address kept private)"; $backoff = 5 }
                 $nextTry = (Get-Date).AddMinutes(2)

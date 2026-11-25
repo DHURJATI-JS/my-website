@@ -45,6 +45,7 @@ def request(
     headers: dict[str, str] | None = None,
     params: dict[str, Any] | None = None,
     json_body: Any = None,
+    raw_body: bytes | None = None,
     connect_timeout: float = 5.0,
     read_timeout: float = 20.0,
     max_bytes: int = 12_000_000,
@@ -58,6 +59,9 @@ def request(
     if json_body is not None:
         body = json.dumps(json_body).encode("utf-8")
         hdrs["Content-Type"] = "application/json"
+    elif raw_body is not None:  # exact bytes (e.g. a signed request body)
+        body = raw_body
+        hdrs.setdefault("Content-Type", "application/json")
     if params:
         url += ("&" if "?" in url else "?") + urlencode(params)
 

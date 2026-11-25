@@ -193,9 +193,11 @@ script **seals** the current address together with the gateway's `internet_key` 
 backend opens it; nobody else can read or change it, and the address and key never appear on any page, in the
 admin, in logs or in this repo.
 
-The tunnel only reaches the gateway's **internet door** (`127.0.0.1:8001`, see the AI Server README), which
-accepts nothing but the secret `internet_key` and small text-only chat requests - no uploads, files or other
-endpoints.
+The tunnel only reaches the gateway's **internet door** (`127.0.0.1:8001`, see the AI Server README). The key
+itself never travels over the internet: the site **signs** every request with it (HMAC-SHA256 over the time, a
+one-time nonce and the body), the gateway refuses anything unsigned, older than 5 minutes, replayed or changed,
+and the site only accepts answers the gateway signed back. The door takes nothing but small text-only chat
+requests - no uploads, files or other endpoints. Your LAN door (port 8000) is unchanged.
 
 1. **Token:** GitHub → Settings → Developer settings → *Fine-grained tokens* → Generate:
    *Public repositories* (read-only) + Account permission **Gists: Read and write**. Put it in `.env` as `GITHUB_TOKEN`.
@@ -206,7 +208,8 @@ endpoints.
 3. **Tunnel (on the PC that runs the gateway - its internet door only listens on that PC):** double-click `scripts\setup-tunnel.cmd`
    (or `winget install --id Cloudflare.cloudflared`, then
    `powershell -ExecutionPolicy Bypass -File scripts\install-tunnel-task.ps1`). It starts
-   `scripts\start-tunnel.ps1` now and at every logon: it restarts cloudflared if it stops, republishes the new URL,
+   `scripts\start-tunnel.ps1` now and at every logon (or put a shortcut to `scripts\start-tunnel.cmd` in your Startup
+   folder - only one copy ever runs, so having both is fine): it restarts cloudflared if it stops, republishes the new URL,
    and asks the site to sync + categorise **new** repos every `AUTO_SYNC_MINUTES` (Vercel's own cron also runs daily).
    Log: `%LOCALAPPDATA%\portfolio-tunnel\tunnel.log`. Remove with `install-tunnel-task.ps1 -Remove`.
 

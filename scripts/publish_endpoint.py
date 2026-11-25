@@ -147,7 +147,8 @@ def main() -> int:
         print("Not published: --url must be an https:// address")
         return 1
 
-    payload = {"url": url, "key": key, "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    # auth "sig1": the website signs every request with the key instead of sending it (see gateway.py)
+    payload = {"url": url, "key": key, "auth": "sig1", "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
     record = sealed.seal(payload, secret, PURPOSE)
     if sealed.open_sealed(record, secret, PURPOSE) != payload:  # never publish something the site can't open
         print("Not published: the sealed record did not open again")
