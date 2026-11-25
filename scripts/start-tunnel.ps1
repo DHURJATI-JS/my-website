@@ -81,8 +81,11 @@ $publisher = Join-Path $PSScriptRoot "publish_endpoint.py"
 # Python for publish_endpoint.py (standard library only): PYTHON in .env, else python, else the py launcher.
 $python = @()
 $pySetting = Get-Setting $envVals "PYTHON"
+# The first real python.exe on PATH (not the Microsoft Store shortcut), as the gateway's .bat uses.
+$pyExe = Get-Command python -All -CommandType Application -ErrorAction SilentlyContinue |
+    Where-Object { $_.Source -notlike "*\WindowsApps\*" } | Select-Object -First 1
 if ($pySetting) { $python = @($pySetting) }
-elseif (Get-Command python -ErrorAction SilentlyContinue | Where-Object { $_.Source -notlike "*\WindowsApps\*" }) { $python = @("python") }
+elseif ($pyExe) { $python = @($pyExe.Source) }
 elseif (Get-Command py -ErrorAction SilentlyContinue) { $python = @("py", "-3") }
 if ($python.Count -eq 0) {
     Log "ERROR: Python 3 not found (needed to seal the tunnel record). Install it or set PYTHON=<path> in .env"
