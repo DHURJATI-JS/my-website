@@ -2,7 +2,7 @@
 
   .venv\\Scripts\\python scripts\\unblock_ip.py            list blocked networks
   .venv\\Scripts\\python scripts\\unblock_ip.py --all      unblock every network
-  .venv\\Scripts\\python scripts\\unblock_ip.py 1.2.3.4    unblock one address (or an IPv6 /64)
+  .venv\\Scripts\\python scripts\\unblock_ip.py 1.2.3.4    unblock one address (or an IPv6 /64, or a key "h:…" from the list)
 
 It uses the same .env as the site, so with STORAGE_BACKEND=gist it edits the live data.
 """
@@ -28,10 +28,10 @@ def main() -> int:
         blocked = lockout.admin_view(store.get())["blocked"]
         if not blocked:
             print("Nothing is blocked.")
-        for item in blocked:
-            print(f"{item['ip']:<45} blocked {item.get('at', '')}  ({item.get('count', '?')} wrong passwords)")
+        for item in blocked:  # addresses are stored hashed: you see a masked form and the key
+            print(f"{item['ip']:<22} {item['key']}  blocked {item.get('at', '')}  ({item.get('count', '?')} wrong passwords)")
         return 0
-    target = "*" if args.all else lockout.network_key(args.ip)
+    target = "*" if args.all else args.ip  # an address, an IPv6 /64, or a key from the list
     removed = lockout.unblock(target)
     print(f"Unblocked {removed} network(s).")
     return 0

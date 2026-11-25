@@ -150,8 +150,12 @@ Start Docker Desktop first.
   POST from it gets *403 Access blocked* before any route runs — until you unblock it in `/admin` → *Security*.
   A signed-in admin session always passes, so you can't lock yourself out of the unblock button. Locked out
   anyway? Sign in from another network, or run `python scripts/unblock_ip.py --all`. Counts and blocks are stored
-  in the JSON (`security`), so they hold across every Vercel instance. Note: mobile networks often share one
-  address between many people, so a block can affect others on that network until you unblock it.
+  in the JSON (`security`), so they hold across every Vercel instance - **without any address**: each network is
+  kept as a keyed hash (HMAC with `SECRET_KEY`) and the admin page only shows a masked form such as `203.0.x.x`;
+  browser details aren't kept. Note: mobile networks often share one address between many people, so a block can
+  affect others on that network until you unblock it.
+* **Secrets stay in the backend:** the AI gateway's address and key are never shown in the admin, the API, error
+  messages or logs, and reach Vercel only inside a sealed (encrypted + signed) record in the Gist.
 * **Admin:** credentials from env, constant-time checks, optional PBKDF2 hash, HMAC-signed HttpOnly
   SameSite=Strict session cookie (changing the password logs everyone out), CSRF tokens + Origin check.
 * **README/issue HTML** is sanitised with nh3 (scripts, event handlers, styles, iframes and `javascript:`

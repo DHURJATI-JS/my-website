@@ -442,6 +442,10 @@ def admin_research(doc: dict[str, Any]) -> dict[str, Any]:
 
 
 def admin_state(client_ip: str = "") -> dict[str, Any]:
+    try:
+        lockout.migrate_if_needed()  # older lockout entries kept plain addresses: convert them once
+    except Exception:  # noqa: BLE001 - never block the admin page on this
+        pass
     doc = store.get()
     rows = sorted((admin_repo_row(k, e, doc) for k, e in doc["repos"].items()), key=lambda r: r["name"].lower())
     storage = store.describe()

@@ -95,7 +95,7 @@ async def login_submit(request: Request):
     username = form.get("username", "")[:120]
     if not security.verify_credentials(username, form.get("password", "")[:256]):
         try:
-            result = lockout.record_failure(ip, request.headers.get("user-agent", ""))
+            result = lockout.record_failure(ip)
         except Exception:  # noqa: BLE001 - storage down: still refuse the login
             result = {"blocked": False, "left": None}
         if result["blocked"]:
@@ -174,7 +174,7 @@ class TranslateSaveBody(BaseModel):
 
 
 class UnblockBody(BaseModel):
-    ip: str = Field(min_length=1, max_length=64)  # "*" = everyone
+    ip: str = Field(min_length=1, max_length=64)  # a key from the list ("h:…"), "*" = everyone
 
 
 _KEY = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"

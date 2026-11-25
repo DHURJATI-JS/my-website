@@ -797,23 +797,23 @@
     }
     items.push(...(sec.blocked.length ? sec.blocked.map((b) => {
       const btn = h('button', { class: 'btn-glass btn-sm', type: 'button' }, icon('undo'), h('span', { text: 'Unblock' }));
-      btn.addEventListener('click', () => unblock(b.ip));
+      btn.addEventListener('click', () => unblock(b.key));
       return h('div', { class: 'ra-item is-blocked' },
-        h('div', {}, h('b', { text: b.ip + (b.ip === sec.you ? ' (this is you)' : '') }),
-          h('small', { text: ` · blocked ${when(b.at)} after ${b.count} wrong passwords${b.agent ? ' · ' + b.agent.slice(0, 70) : ''}` })),
+        h('div', {}, h('b', { text: b.ip + (b.you ? ' (this is you)' : '') }),
+          h('small', { text: ` · blocked ${when(b.at)} after ${b.count} wrong passwords` })),
         btn);
     }) : [h('p', { class: 'hint', text: 'No blocked networks. ✓' })]));
     if (sec.watching.length) {
       items.push(h('p', { class: 'hint mt-2', text: 'Recent wrong passwords (not blocked yet):' }));
       sec.watching.forEach((w) => items.push(h('div', { class: 'ra-item' },
-        h('div', {}, h('b', { text: w.ip }), h('small', { text: ` · ${w.count} of ${sec.max_failures} · last ${when(w.last)}` })))));
+        h('div', {}, h('b', { text: w.ip + (w.you ? ' (this is you)' : '') }), h('small', { text: ` · ${w.count} of ${sec.max_failures} · last ${when(w.last)}` })))));
     }
     box.replaceChildren(...items);
   }
-  async function unblock(ip) {
-    if (ip === '*' && !confirm('Unblock every network?')) return;
+  async function unblock(key) {
+    if (key === '*' && !confirm('Unblock every network?')) return;
     try {
-      const data = await api('/admin/api/security/unblock', { method: 'POST', body: { ip } });
+      const data = await api('/admin/api/security/unblock', { method: 'POST', body: { ip: key } });
       setState(data.state); toast(`Unblocked ${data.removed} network(s)`);
     } catch (e) { toast(e.message, 'err'); }
   }

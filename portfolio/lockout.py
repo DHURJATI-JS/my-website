@@ -13,13 +13,21 @@ on your PC (it uses the same .env / Gist as the site).
 Counts and blocks live in the JSON document (under "security"), so they hold across every
 Vercel instance. IPv6 addresses are grouped by their /64 network, since one device can
 rotate through a whole /64.
+
+Privacy: no address is stored. Each network is kept as a keyed hash (HMAC with SECRET_KEY),
+plus a masked form for the admin page ("203.0.x.x", "2001:db8:…/64"); browser details are
+not kept at all. Older entries with plain addresses are converted the next time they're touched
+(or when the admin page opens).
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import ipaddress
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from .config import settings
 from .store import now_iso, store
 
 MAX_FAILURES = 3
@@ -40,11 +48,64 @@ def network_key(ip: str) -> str:
     return str(addr)
 
 
+def hashed(network: str) -> str:
+    """The stored key for a network: a keyed hash, useless without SECRET_KEY."""
+    digest = hmac.new(settings.secret_key.encode("utf-8"), b"lockout|" + network.encode("utf-8"), hashlib.sha256)
+    return "h:" + digest.hexdigest()[:32]
+
+
+def key_for(ip: str) -> str:
+    return hashed(network_key(ip))
+
+
+def mask(network: str) -> str:
+    """What the admin page shows: enough to tell networks apart, never the full address."""
+    try:
+        net = ipaddress.ip_network(network, strict=False)
+    except ValueError:
+        return "unknown network"
+    if net.version == 4:
+        a, b = str(net.network_address).split(".")[:2]
+        return f"{a}.{b}.x.x"
+    first = net.network_address.exploded.split(":")[:2]
+    return f"{int(first[0], 16):x}:{int(first[1], 16):x}:…/64"
+
+
+def _is_legacy(key: str) -> bool:
+    return not key.startswith("h:")
+
+
+def _clean_entry(entry: Any, shown: str) -> dict[str, Any]:
+    entry = dict(entry) if isinstance(entry, dict) else {}
+    entry.pop("agent", None)  # browser details are not kept
+    entry.setdefault("shown", shown)
+    return entry
+
+
 def _section(doc: dict[str, Any]) -> dict[str, Any]:
     sec = doc.setdefault("security", {})
     sec.setdefault("failures", {})
     sec.setdefault("blocked", {})
+    for part in ("failures", "blocked"):  # convert older entries that kept the plain address
+        table = sec[part]
+        for key in [k for k in table if _is_legacy(k) or "agent" in (table[k] or {})]:
+            entry = table.pop(key)
+            if _is_legacy(key):
+                table[hashed(key)] = _clean_entry(entry, mask(key))
+            else:
+                table[key] = _clean_entry(entry, "unknown network")
     return sec
+
+
+def needs_migration(doc: dict[str, Any]) -> bool:
+    sec = doc.get("security") or {}
+    return any(_is_legacy(k) or "agent" in (v or {})
+               for part in ("failures", "blocked") for k, v in (sec.get(part) or {}).items())
+
+
+def migrate_if_needed() -> None:
+    if needs_migration(store.get()):
+        store.mutate(_section)  # converting happens inside _section
 
 
 def _parse(ts: str) -> datetime:
@@ -60,13 +121,13 @@ def blocked_keys() -> frozenset[str]:
 
 
 def is_blocked(ip: str) -> bool:
-    sec = store.get().get("security") or {}
-    return network_key(ip) in (sec.get("blocked") or {})
+    blocked = (store.get().get("security") or {}).get("blocked") or {}
+    return bool(blocked) and (key_for(ip) in blocked or network_key(ip) in blocked)
 
 
-def record_failure(ip: str, user_agent: str = "") -> dict[str, Any]:
+def record_failure(ip: str) -> dict[str, Any]:
     """Count one wrong password. Returns {"count": n, "blocked": bool, "left": attempts left}."""
-    key = network_key(ip)
+    key, shown = key_for(ip), mask(network_key(ip))
 
     def apply(doc: dict[str, Any]) -> dict[str, Any]:
         sec = _section(doc)
@@ -75,13 +136,13 @@ def record_failure(ip: str, user_agent: str = "") -> dict[str, Any]:
         now = datetime.now(timezone.utc)
         entry = sec["failures"].get(key)
         if not entry or now - _parse(entry.get("first", "")) > FAILURE_WINDOW:
-            entry = {"count": 0, "first": now_iso()}
+            entry = {"count": 0, "first": now_iso(), "shown": shown}
         entry["count"] = int(entry.get("count", 0)) + 1
         entry["last"] = now_iso()
         if entry["count"] >= MAX_FAILURES:
             sec["failures"].pop(key, None)
             sec["blocked"][key] = {"at": now_iso(), "count": entry["count"], "first": entry["first"],
-                                   "agent": (user_agent or "")[:160]}
+                                   "shown": shown}
             return {"count": entry["count"], "blocked": True, "left": 0}
         sec["failures"][key] = entry
         if len(sec["failures"]) > MAX_TRACKED:  # drop the oldest
@@ -94,13 +155,22 @@ def record_failure(ip: str, user_agent: str = "") -> dict[str, Any]:
 
 def clear_failures(ip: str) -> None:
     """A correct password resets that network's count (only writes if there was one)."""
-    key = network_key(ip)
-    if key in ((store.get().get("security") or {}).get("failures") or {}):
-        store.mutate(lambda doc: _section(doc)["failures"].pop(key, None))
+    keys = {key_for(ip), network_key(ip)}
+    if keys & set((store.get().get("security") or {}).get("failures") or {}):
+        def apply(doc: dict[str, Any]) -> None:
+            failures = _section(doc)["failures"]
+            for k in keys:
+                failures.pop(k, None)
+
+        store.mutate(apply)
 
 
 def unblock(target: str) -> int:
-    """Unblock one network (exact key from the list) or "*" for all. Returns how many were removed."""
+    """Unblock one network - its key from the admin list, or an address - or "*" for all.
+    Returns how many were removed."""
+    target = target.strip()
+    keys = {target} if target.startswith("h:") else {key_for(target), hashed(target), network_key(target)}
+
     def apply(doc: dict[str, Any]) -> int:
         sec = _section(doc)
         if target == "*":
@@ -108,23 +178,32 @@ def unblock(target: str) -> int:
             sec["blocked"].clear()
             sec["failures"].clear()
             return removed
-        removed = 1 if sec["blocked"].pop(target, None) else 0
-        sec["failures"].pop(target, None)
+        removed = sum(1 for k in keys if sec["blocked"].pop(k, None) is not None)
+        for k in keys:
+            sec["failures"].pop(k, None)
         return removed
 
     return store.mutate(apply)
 
 
 def admin_view(doc: dict[str, Any], current_ip: str = "") -> dict[str, Any]:
+    """For the admin page: masked networks only (never a full address or a browser)."""
     sec = doc.get("security") or {}
-    blocked = [{"ip": k, **v} for k, v in (sec.get("blocked") or {}).items()]
+    yours = {key_for(current_ip), network_key(current_ip)} if current_ip else set()
+
+    def row(key: str, value: dict[str, Any]) -> dict[str, Any]:
+        value = value or {}
+        shown = value.get("shown") or (mask(key) if _is_legacy(key) else "unknown network")
+        return {"key": key if not _is_legacy(key) else hashed(key), "ip": shown, "you": key in yours,
+                **{k: value[k] for k in ("at", "count", "first", "last") if k in value}}
+
+    blocked = [row(k, v) for k, v in (sec.get("blocked") or {}).items()]
     blocked.sort(key=lambda x: x.get("at", ""), reverse=True)
     now = datetime.now(timezone.utc)
-    watching = [{"ip": k, **v} for k, v in (sec.get("failures") or {}).items()
-                if now - _parse(v.get("first", "")) <= FAILURE_WINDOW]
+    watching = [row(k, v) for k, v in (sec.get("failures") or {}).items()
+                if now - _parse((v or {}).get("first", "")) <= FAILURE_WINDOW]
     watching.sort(key=lambda x: x.get("last", ""), reverse=True)
-    return {"blocked": blocked, "watching": watching[:50], "max_failures": MAX_FAILURES,
-            "you": network_key(current_ip) if current_ip else ""}
+    return {"blocked": blocked, "watching": watching[:50], "max_failures": MAX_FAILURES}
 
 
 # ---------------------------------------------------------------- middleware --
@@ -157,7 +236,8 @@ class BanMiddleware:
             banned = await run_in_threadpool(blocked_keys)  # store.get() may refresh the Gist
         except Exception:  # noqa: BLE001 - storage trouble must not take the site down
             banned = frozenset()
-        if banned and network_key(client_ip(request)) in banned \
+        ip = client_ip(request) if banned else ""
+        if banned and (key_for(ip) in banned or network_key(ip) in banned) \
                 and read_session(request.cookies.get(SESSION_COOKIE)) is None:
             wants_json = scope["path"].startswith(("/api/", "/admin/api/"))
             body = b'{"detail":"Access blocked: this network was blocked after repeated wrong admin passwords."}' \
