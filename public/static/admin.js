@@ -489,30 +489,64 @@
     }));
   }
   const translateBtn = $('#translateRun');
+  // Translations are saved in batches: one save per ~10 translations (or every 2 minutes),
+  // because the Gist API rate-limits many small saves. Unsaved ones stay in this tab until saved.
+  const pendingTranslations = [];
+  window.addEventListener('beforeunload', (e) => { if (pendingTranslations.length) { e.preventDefault(); e.returnValue = ''; } });
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  async function flushTranslations(text) {
+    if (!pendingTranslations.length) return true;
+    for (let attempt = 1; attempt <= 8; attempt += 1) {
+      try {
+        const batch = pendingTranslations.slice();
+        const data = await api('/admin/api/translate/save', { method: 'POST', body: { items: batch } });
+        pendingTranslations.splice(0, batch.length);
+        state = data.state; renderTranslations();
+        return true;
+      } catch (e) {
+        const limited = /rate-limit|rate limit|HTTP 403|HTTP 429/i.test(e.message);
+        if (!limited || attempt === 8) { toast(e.message, 'err'); return false; }
+        for (let s = 90; s > 0; s -= 1) {  // GitHub asked us to slow down: wait, then retry the same batch
+          text.textContent = `GitHub is limiting saves — ${pendingTranslations.length} translation(s) kept in this tab, saving again in ${s} s… (attempt ${attempt + 1}/8, don't close this tab)`;
+          await sleep(1000);
+        }
+      }
+    }
+    return false;
+  }
   if (translateBtn) translateBtn.addEventListener('click', async () => {
     if (busy) return toast('Another job is running — wait for it to finish.', 'err');
     busy = true; translateBtn.disabled = true;
     const wrap = $('#translateWrap'); const fillT = $('#translateFill'); const text = $('#translateText');
     wrap.hidden = false;
+    let done = 0; let failed = 0; let lastSave = Date.now(); let stopped = false;
     try {
       const plan = await api('/admin/api/translate/plan');
       const jobs = plan.jobs;
       if (!jobs.length) { fillT.style.width = '100%'; text.textContent = 'Everything is already translated ✓'; return; }
-      let done = 0; let failed = 0;
       for (const job of jobs) {
-        text.textContent = `Translating ${job.name === '__profile__' ? 'your profile' : job.name} → ${job.lang} (${done + 1}/${jobs.length})…`;
+        text.textContent = `Translating ${job.name === '__profile__' ? 'your profile' : job.name} → ${job.lang} (${done + 1}/${jobs.length})…`
+          + (pendingTranslations.length ? ` · ${pendingTranslations.length} waiting to be saved` : '');
         try {
-          await api('/admin/api/translate', { method: 'POST', body: job });
+          const data = await api('/admin/api/translate', { method: 'POST', body: job });
+          pendingTranslations.push(data.item);
         } catch (e) {
           failed += 1;
-          if (/AI unavailable/i.test(e.message)) { toast('The AI is offline — try again when it is online.', 'err'); break; }
+          if (/AI unavailable/i.test(e.message)) { toast('The AI is offline — try again when it is online.', 'err'); stopped = true; break; }
           toast(`${job.name} (${job.lang}): ${e.message}`, 'err');
         }
         done += 1;
         fillT.style.width = Math.round((done / jobs.length) * 100) + '%';
+        if (pendingTranslations.length >= 10 || Date.now() - lastSave > 120000) {
+          if (!(await flushTranslations(text))) { stopped = true; break; }
+          lastSave = Date.now();
+        }
       }
-      text.textContent = `Done: ${done - failed} translated${failed ? `, ${failed} failed` : ''}.`;
-      setState(await api('/admin/api/state'));
+      const ok = await flushTranslations(text);
+      const left = pendingTranslations.length;
+      text.textContent = ok && !stopped
+        ? `Done ✓ — ${done - failed} translated and saved${failed ? `, ${failed} failed` : ''}.`
+        : `Stopped. ${left ? `${left} translation(s) could not be saved yet — press the button again later.` : 'Everything translated so far is saved — press the button again to continue.'}`;
     } catch (e) { toast(e.message, 'err'); }
     finally { busy = false; translateBtn.disabled = false; }
   });

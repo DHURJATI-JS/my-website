@@ -73,58 +73,99 @@ def translation_plan() -> list[dict[str, str]]:
     return translate.plan(doc, visible_entries(doc))
 
 
-def translate_one(name: str, lang: str) -> dict[str, Any]:
-    """Translate one project's card text (or the profile text) into `lang` and store it."""
+def translate_preview(name: str, lang: str) -> dict[str, Any]:
+    """Translate one project's card text (or the profile text) into `lang` WITHOUT saving it.
+
+    Saving is separate (save_translations) so many translations can be stored in one write:
+    the Gist API rate-limits saves, and one save per translation trips it.
+    """
     if lang not in translate.TARGET_LANGS:
         raise ValueError("unsupported language")
     doc = store.get()
     if name == translate.PROFILE_KEY:
         source = translate.profile_source(doc["profile"])
-        if not source:
-            raise KeyError(name)
-        result = ai.translate(source, lang)  # slow network call, outside the lock
-        result.update(src=translate.src_hash(source), at=now_iso())
-
-        def save_profile(d: dict[str, Any]) -> dict[str, Any]:
-            if translate.src_hash(translate.profile_source(d["profile"])) != result["src"]:
-                return {"stale": True}  # the profile changed meanwhile - redo next time
-            d.setdefault("profile_i18n", {})[lang] = result
-            return result
-
-        return store.mutate(save_profile)
-
-    key, entry = find_repo(doc, name)
-    source = translate.repo_source(entry)
+    else:
+        _, entry = find_repo(doc, name)
+        source = translate.repo_source(entry)
     if not source:
         raise KeyError(name)
-    result = ai.translate(source, lang)
+    result = ai.translate(source, lang)  # slow network call, outside the lock
     result.update(src=translate.src_hash(source), at=now_iso())
-
-    def save(d: dict[str, Any]) -> dict[str, Any]:
-        current = d["repos"].get(key)
-        if not current or translate.src_hash(translate.repo_source(current) or {}) != result["src"]:
-            return {"stale": True}
-        current["ai"].setdefault("i18n", {})[lang] = result
-        return result
-
-    return store.mutate(save)
+    return {"name": name, "lang": lang, "result": result}
 
 
-def translate_pending(deadline: float | None, report: dict[str, Any]) -> None:
-    """Translate whatever is missing until the deadline (monotonic) or the AI is down."""
+def save_translations(items: list[dict[str, Any]]) -> dict[str, int]:
+    """Store many translations in ONE write. Stale ones (English changed meanwhile) are skipped."""
+    def apply(doc: dict[str, Any]) -> dict[str, int]:
+        saved = stale = 0
+        for item in items:
+            lang = item.get("lang")
+            if lang not in translate.TARGET_LANGS:
+                continue
+            if item.get("name") == translate.PROFILE_KEY:
+                source = translate.profile_source(doc["profile"])
+                clean = translate.clean_result(item.get("result"), source, translate.PROFILE_FIELDS)
+                if clean is None:
+                    stale += 1
+                    continue
+                doc.setdefault("profile_i18n", {})[lang] = clean
+            else:
+                try:
+                    _, entry = find_repo(doc, str(item.get("name") or ""))
+                except KeyError:
+                    stale += 1
+                    continue
+                source = translate.repo_source(entry) or {}
+                clean = translate.clean_result(item.get("result"), source, translate.REPO_FIELDS)
+                if clean is None:
+                    stale += 1
+                    continue
+                entry["ai"].setdefault("i18n", {})[lang] = clean
+            saved += 1
+        return {"saved": saved, "stale": stale}
+
+    if not items:
+        return {"saved": 0, "stale": 0}
+    return store.mutate(apply)
+
+
+def translate_one(name: str, lang: str) -> dict[str, Any]:
+    """Translate and save one (CLI / tests). The admin page and cron batch their saves."""
+    return save_translations([translate_preview(name, lang)])
+
+
+def translate_pending(deadline: float | None, report: dict[str, Any], batch: int = 10) -> None:
+    """Translate whatever is missing until the deadline (monotonic) or the AI is down.
+    Results are saved in batches (one Gist write per `batch` translations)."""
     done = report.setdefault("translated", [])
+    buffer: list[dict[str, Any]] = []
+
+    def flush() -> bool:
+        if not buffer:
+            return True
+        try:
+            save_translations(buffer)
+        except Exception as exc:  # noqa: BLE001 - e.g. Gist rate limit: stop, try again next run
+            report["errors"].append(f"saving translations: {exc}")
+            return False
+        done.extend(f"{x['name']}:{x['lang']}" for x in buffer)
+        buffer.clear()
+        return True
+
     for job in translation_plan():
         if deadline and time.monotonic() > deadline:
             report["translations_deferred"] = True
-            return
+            break
         try:
-            translate_one(job["name"], job["lang"])
-            done.append(f"{job['name']}:{job['lang']}")
+            buffer.append(translate_preview(job["name"], job["lang"]))
         except ai.AIUnavailable as exc:
             report["errors"].append(f"AI unavailable for translations: {exc}")
-            return
+            break
         except Exception as exc:  # noqa: BLE001 - keep going with the next one
             report["errors"].append(f"translate {job['name']}:{job['lang']}: {exc}")
+        if len(buffer) >= batch and not flush():
+            return
+    flush()
 
 
 # ----------------------------------------------------------------- festivals --

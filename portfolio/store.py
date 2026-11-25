@@ -231,7 +231,18 @@ class GistBackend:
         except httpclient.FetchError as exc:
             raise StoreError(f"Gist unreachable: {exc}") from exc
         if not resp.ok:
-            raise StoreError(f"Gist write failed (HTTP {resp.status})")
+            try:
+                message = str((resp.json() or {}).get("message") or "")
+            except ValueError:
+                message = resp.text()[:200]
+            retry = resp.headers.get("retry-after", "")
+            if resp.status in (403, 429) and ("rate limit" in message.lower() or retry
+                                               or resp.headers.get("x-ratelimit-remaining") == "0"):
+                when = f"try again in {retry} s" if retry.isdigit() else "wait a few minutes and try again"
+                raise StoreError(f"GitHub is rate-limiting saves to your Gist (too many saves in a short time) - "
+                                 f"{when}. Nothing that was already saved is lost.")
+            detail = f": {message[:160]}" if message else ""
+            raise StoreError(f"Gist write failed (HTTP {resp.status}){detail}")
 
     def describe(self) -> dict[str, Any]:
         return {"backend": "gist", "location": f"gist {self.gist_id[:7]}… / {self.filename}", "persistent": True}

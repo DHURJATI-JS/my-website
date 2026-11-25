@@ -97,3 +97,37 @@ def progress(doc: dict[str, Any], visible: list[tuple[str, dict[str, Any]]]) -> 
     done = sum(v["done"] for v in per_lang.values())
     return {"languages": per_lang, "done": done, "total": total,
             "names": {lang: LANGUAGE_NAMES[lang].split(" (")[0] for lang in TARGET_LANGS}}
+
+
+_FIELD_LIMITS = {"title": 80, "summary": 900, "problem": 400, "reason": 400, "audience": 200,
+                 "headline": 400, "bio": 4500}
+
+
+def clean_result(result: Any, source: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any] | None:
+    """Validate a translation before it is stored (it comes back from the admin's browser).
+
+    None if it no longer matches the English text (stale) or is malformed. Only known fields,
+    plain strings and lists of strings of bounded size are kept; the site escapes them on output.
+    """
+    if not isinstance(result, dict) or not source or result.get("src") != src_hash(source):
+        return None
+    clean: dict[str, Any] = {"src": result["src"], "at": str(result.get("at") or "")[:32],
+                             "provider": str(result.get("provider") or "")[:40],
+                             "model": str(result.get("model") or "")[:80]}
+    for key in fields:
+        if key not in source:
+            continue
+        value = result.get(key)
+        if isinstance(source[key], list):
+            if not isinstance(value, list) or len(value) != len(source[key]):
+                return None
+            items = [str(x).strip()[:220] for x in value]
+            if not all(items):
+                return None
+            clean[key] = items
+        else:
+            text = str(value or "").strip()
+            if not text:
+                return None
+            clean[key] = text[: _FIELD_LIMITS.get(key, 400)]
+    return clean

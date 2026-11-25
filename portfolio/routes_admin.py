@@ -163,6 +163,16 @@ class TranslateBody(BaseModel):
     lang: str = Field(min_length=2, max_length=2, pattern=r"^[a-z]{2}$")
 
 
+class TranslatedItem(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    lang: str = Field(min_length=2, max_length=2, pattern=r"^[a-z]{2}$")
+    result: dict  # checked field by field in translate.clean_result
+
+
+class TranslateSaveBody(BaseModel):
+    items: list[TranslatedItem] = Field(min_length=1, max_length=40)
+
+
 class UnblockBody(BaseModel):
     ip: str = Field(min_length=1, max_length=64)  # "*" = everyone
 
@@ -503,17 +513,27 @@ def api_translate_plan(request: Request, session: dict = Depends(require_admin))
 @router.post("/api/translate")
 @limiter.limit(rl.ADMIN)
 def api_translate(request: Request, body: TranslateBody, session: dict = Depends(require_csrf)):
+    """Translate one project into one language and return it - NOT saved yet (see /api/translate/save)."""
     try:
-        result = jobs.translate_one(body.name, body.lang)
+        item = jobs.translate_preview(body.name, body.lang)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown repository") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ai.AIUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"AI unavailable - {exc}") from exc
+    return {"item": item}
+
+
+@router.post("/api/translate/save")
+@limiter.limit(rl.ADMIN)
+def api_translate_save(request: Request, body: TranslateSaveBody, session: dict = Depends(require_csrf)):
+    """Save a batch of translations in ONE write (the Gist API rate-limits many small saves)."""
+    try:
+        result = jobs.save_translations([item.model_dump() for item in body.items])
     except StoreError as exc:
-        raise HTTPException(status_code=500, detail=f"Could not save the JSON: {exc}") from exc
-    return {"ok": not result.get("stale"), "stale": bool(result.get("stale"))}
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {**result, "state": views.admin_state(rl.client_ip(request))}
 
 
 # ---------------------------------------------------------------- festivals --
