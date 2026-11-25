@@ -1033,3 +1033,9 @@ textarea.field { min-height: 120px; resize: vertical; }
 .swatches { display: flex; flex-wrap: wrap; gap: .4rem; }
 .swatch { width: 30px; height: 30px; border-radius: 50%; border: 3px solid transparent; cursor: pointer; box-shadow: 0 0 0 1px var(--line-2); }
 .swatch[aria-checked="true"] { border-color: var(--bg-2); box-shadow: 0 0 0 2px var(--tx); }
+
+/* admin: backup */
+.backup-ways { margin: .4rem 0 0; padding-left: 1.2rem; display: grid; gap: .35rem; }
+.branch-links { display: flex; flex-wrap: wrap; gap: .3rem; }
+.branch-pill { padding: .15rem .55rem; border-radius: 999px; font-size: .78rem; font-family: var(--mono); border: 1px solid var(--line-2); background: var(--chip-bg); color: var(--tx-2); text-decoration: none; }
+a.branch-pill:hover { color: var(--tx); border-color: var(--accent); }

@@ -49,6 +49,7 @@ def request(
     read_timeout: float = 20.0,
     max_bytes: int = 12_000_000,
     max_redirects: int = 3,
+    follow_redirects: bool = True,
 ) -> Response:
     hdrs = {"User-Agent": USER_AGENT, "Accept-Encoding": "identity", "Connection": "close"}
     if headers:
@@ -63,7 +64,7 @@ def request(
     for _ in range(max_redirects + 1):
         resp = _send(method, url, hdrs, body, connect_timeout, read_timeout, max_bytes)
         location = resp.headers.get("location")
-        if resp.status in (301, 302, 303, 307, 308) and location:
+        if resp.status in (301, 302, 303, 307, 308) and location and follow_redirects:
             new_url = urljoin(url, location)
             if urlsplit(new_url).netloc != urlsplit(url).netloc:
                 hdrs.pop("Authorization", None)  # never leak tokens to another host

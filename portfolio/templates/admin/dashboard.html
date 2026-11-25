@@ -296,6 +296,37 @@
       <div id="securityList" aria-live="polite"></div>
     </section>
 
+
+    <section class="admin-card glass mt-4" id="backupCard">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <h2 class="mb-0">{{ icon('download') }}Backup · download all repositories</h2>
+        <button class="btn-glass btn-sm" type="button" id="backupLoad">{{ icon('sync') }}<span>Load my repositories</span></button>
+      </div>
+      <p class="hint"><b>Read-only — nothing on GitHub is ever changed.</b> The site only <i>reads</i> the list of your
+        repositories and branches (its token stays on the server). Two ways to download:</p>
+      <ul class="hint backup-ways">
+        <li><b>Full backup (recommended)</b> — every repository with <b>all branches, tags and the full history</b>.
+          Download the small script for your computer and double-click it (needs <a href="https://git-scm.com/downloads" target="_blank" rel="noopener">Git</a>);
+          it saves everything in <code>GitHub-Backup</code> in your user folder, and running it again later just updates that backup.
+          Private repositories are included when <a href="https://cli.github.com/" target="_blank" rel="noopener">GitHub CLI</a>
+          is installed and signed in (<code>gh auth login</code>) — git then uses your own sign-in. The script contains no passwords or tokens.</li>
+        <li><b>ZIP of every branch</b> — a snapshot of the files of each branch of your <b>public</b> repositories, straight
+          from github.com (no history). Your browser may ask once to allow multiple downloads.</li>
+      </ul>
+      <div class="d-flex flex-wrap gap-2 mt-2">
+        <a class="btn-glow btn-sm" href="/admin/backup/github-backup.cmd" rel="nofollow">{{ icon('download') }}<span>Full backup · Windows (.cmd)</span></a>
+        <a class="btn-glass btn-sm" href="/admin/backup/github-backup.sh" rel="nofollow">{{ icon('download') }}<span>Full backup · Mac / Linux (.sh)</span></a>
+        <button class="btn-glass btn-sm" type="button" id="backupZips" disabled>{{ icon('download') }}<span>Download ZIPs of every branch</span></button>
+      </div>
+      <div class="progress-text mt-2" id="backupStatus" aria-live="polite"></div>
+      <div class="table-wrap mt-3" id="backupTableWrap" hidden>
+        <table class="admin-table">
+          <thead><tr><th scope="col">Repository</th><th scope="col">Visibility</th><th scope="col">Size</th><th scope="col">Branches (ZIP)</th></tr></thead>
+          <tbody id="backupRows"></tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="admin-card glass mt-4">
       <h2>{{ icon('download') }}Data &amp; deployment</h2>
       <p>Everything the site shows — repo details, README HTML, AI groups &amp; summaries, issues, activity and this profile —

@@ -822,4 +822,52 @@
   renderOccasions();
   renderCategories();
   renderSecurity();
+
+  /* =========================================================== backup */
+  // Read-only. The list comes from the server (its token never reaches the browser); ZIP links are
+  // github.com's normal public archive URLs, so nothing secret is ever in a link.
+  let backupData = null;
+  const kb = (n) => (n >= 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + ' GB' : n >= 1024 ? (n / 1024).toFixed(1) + ' MB' : n + ' KB');
+  const zipUrl = (owner, repo, branch) => `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/archive/refs/heads/${branch.split('/').map(encodeURIComponent).join('/')}.zip`;
+  function renderBackup() {
+    const d = backupData;
+    $('#backupTableWrap').hidden = !d;
+    if (!d) return;
+    const pub = d.repos.filter((r) => !r.private);
+    $('#backupStatus').textContent = `${d.repos.length} repositories (${d.repos.filter((r) => r.private).length} private) · ${d.branch_count} branches · about ${kb(d.total_kb)} on GitHub`
+      + (d.private_listed ? '' : ' · only public repositories are visible to the site — the full-backup script adds your private ones through GitHub CLI if it is installed and signed in.');
+    $('#backupZips').disabled = !pub.length;
+    $('#backupRows').replaceChildren(...d.repos.map((r) => h('tr', {},
+      h('td', { class: 'repo-cell' }, h('b', { text: r.name }), h('small', { text: [r.fork ? 'fork' : '', r.archived ? 'archived' : ''].filter(Boolean).join(' · ') })),
+      h('td', { text: r.private ? 'Private (script only)' : 'Public' }),
+      h('td', { text: kb(r.size_kb) }),
+      h('td', {}, h('div', { class: 'branch-links' }, r.branches.length ? r.branches.map((b) => (r.private
+        ? h('span', { class: 'branch-pill', text: b + (b === r.default_branch ? ' ★' : '') })
+        : h('a', { class: 'branch-pill', href: zipUrl(d.owner, r.name, b), rel: 'noreferrer nofollow', text: b + (b === r.default_branch ? ' ★' : '') }))) : h('small', { text: 'no branches (empty repository)' }))))));
+  }
+  const backupLoad = $('#backupLoad');
+  if (backupLoad) backupLoad.addEventListener('click', async () => {
+    backupLoad.disabled = true;
+    $('#backupStatus').textContent = 'Reading your repositories and branches from GitHub…';
+    try { backupData = await api('/admin/api/backup/list'); renderBackup(); }
+    catch (e) { $('#backupStatus').textContent = ''; toast(e.message, 'err'); }
+    finally { backupLoad.disabled = false; }
+  });
+  const backupZips = $('#backupZips');
+  if (backupZips) backupZips.addEventListener('click', async () => {
+    if (!backupData) return;
+    const jobs = [];
+    backupData.repos.filter((r) => !r.private).forEach((r) => r.branches.forEach((b) => jobs.push(zipUrl(backupData.owner, r.name, b))));
+    if (!jobs.length) return;
+    if (!confirm(`Download ${jobs.length} ZIP files (every branch of every public repository) to your Downloads folder?`)) return;
+    backupZips.disabled = true;
+    for (let i = 0; i < jobs.length; i += 1) {
+      $('#backupStatus').textContent = `Starting download ${i + 1} of ${jobs.length}…`;
+      const a = h('a', { href: jobs[i], rel: 'noreferrer nofollow', hidden: true });
+      document.body.appendChild(a); a.click(); a.remove();
+      await new Promise((r) => setTimeout(r, 1300)); // gentle pace so the browser keeps every download
+    }
+    $('#backupStatus').textContent = `Started ${jobs.length} downloads ✓ — check your browser's downloads.`;
+    backupZips.disabled = false;
+  });
 })();

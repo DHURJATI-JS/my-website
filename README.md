@@ -58,6 +58,7 @@ tech stack, audience). Once saved, a repo's group is **permanent**.
 | Translations | The AI translates each project's title, summary and key points (and your headline/biography) into every site language, once, and saves it. New or changed projects are translated by the daily sync; **Translate missing now** does it on demand. |
 | Festivals & occasions | Automatic festival greetings with effects, your own images/greetings per festival, your own occasions, a preview, and **Refresh dates · next 5 years**. See below. |
 | Security | Networks blocked after 3 wrong passwords, with **Unblock**. |
+| Backup | **Read-only.** *Full backup* scripts (Windows `.cmd`, Mac/Linux `.sh`) mirror-clone every repository — all branches, tags and history — into `GitHub-Backup` in your user folder, and update it on later runs (private repos via GitHub CLI's sign-in; the scripts contain no tokens). Or download a ZIP of every branch of every public repository straight from github.com. Nothing is stored and nothing on GitHub is changed. |
 | Research-grade section | An ON/OFF switch (**OFF** by default) plus one card per research project: pick a public repo, add its validators (type, name, organisation, optional proof link), and how, where and when it was used. See below. |
 | Profile | Name, headline, biography, age or birth date (age auto-updates), location, education, skills, links… |
 | Data | Download the JSON. |

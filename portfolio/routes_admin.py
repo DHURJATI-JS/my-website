@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
-from . import ai, categories, jobs, lockout, occasions, ratelimit as rl, research, security, views
+from . import ai, backup, categories, jobs, lockout, occasions, ratelimit as rl, research, security, views
 from .config import settings
 from .github import GitHubError, safe_url
 from .ratelimit import limiter
@@ -586,6 +586,35 @@ def api_occasion_refresh(request: Request, session: dict = Depends(require_csrf)
 def api_unblock(request: Request, body: UnblockBody, session: dict = Depends(require_csrf)):
     removed = lockout.unblock("*" if body.ip == "*" else body.ip.strip())
     return {"removed": removed, "state": views.admin_state(rl.client_ip(request))}
+
+
+
+# ------------------------------------------------------------------- backup --
+# Read-only: lists repositories/branches with the server's token (never sent to the browser)
+# and hands out github.com links and a git script that contain no secrets. Nothing is stored.
+@router.get("/api/backup/list")
+@limiter.limit("20/minute")
+def api_backup_list(request: Request, session: dict = Depends(require_admin)):
+    try:
+        return backup.list_repos()
+    except backup.BackupError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/backup/github-backup.{kind}")
+@limiter.limit("20/minute")
+def backup_script(request: Request, kind: str, session: dict = Depends(require_admin)):
+    if kind not in ("cmd", "sh"):
+        raise HTTPException(status_code=404, detail="Unknown script")
+    try:
+        data = backup.list_repos()
+    except backup.BackupError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    text = backup.script_cmd(data) if kind == "cmd" else backup.script_sh(data)
+    return Response(text.encode("utf-8"), media_type="text/plain; charset=utf-8", headers={
+        "Content-Disposition": f'attachment; filename="github-backup.{kind}"',
+        "Cache-Control": "no-store",
+    })
 
 
 @router.get("/api/ai-status")
