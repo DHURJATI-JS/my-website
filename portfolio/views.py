@@ -455,6 +455,8 @@ def admin_state(client_ip: str = "") -> dict[str, Any]:
                         "Use STORAGE_BACKEND=gist, or click “Download JSON” and commit data/portfolio.json.")
     if not settings.github_token:
         warnings.append("No GITHUB_TOKEN set: GitHub allows only 60 API requests/hour. A read-only token is recommended.")
+    if ai.endpoint_status["problem"]:
+        warnings.append(ai.endpoint_status["problem"])
     if settings.on_vercel and all(ai.is_private_url(p.base_url) for p in ai.providers()):
         warnings.append("Both AI endpoints are private/LAN addresses that Vercel cannot reach. Run the AI locally "
                         "(python scripts/sync.py) and commit the JSON, or expose the gateway over HTTPS.")
@@ -477,7 +479,7 @@ def admin_state(client_ip: str = "") -> dict[str, Any]:
         "storage": storage,
         "warnings": warnings,
         "counts": counts,
-        "providers": [{"key": p.key, "label": p.label, "model": p.model, "url": p.base_url} for p in ai.providers()],
+        "providers": [{"key": p.key, "label": p.label, "model": p.model} for p in ai.providers()],
         "on_vercel": settings.on_vercel,
         "categories": admin_categories(doc),
         "occasions": occasions.admin_view(doc),

@@ -163,16 +163,19 @@ def _load() -> Settings:
         github_username=_env("GITHUB_USERNAME", "DHURJATI-JS"),
         github_token=_env("GITHUB_TOKEN"),
         site_url=_env("SITE_URL").rstrip("/"),
-        contact_email=_env("CONTACT_EMAIL", "dhurjatisharma2010@gmail.com"),
-        contact_whatsapp=_env("CONTACT_WHATSAPP", "+917208555047"),
+        # Shown on the site from the profile you edit in /admin; these are only first-run defaults.
+        contact_email=_env("CONTACT_EMAIL", ""),
+        contact_whatsapp=_env("CONTACT_WHATSAPP", ""),
         admin_username=_env("ADMIN_USERNAME", "admin"),
         admin_password=admin_password,
         admin_password_hash=admin_password_hash,
         secret_key=secret_key,
         secret_key_source=source,
         session_hours=max(1, _int("SESSION_HOURS", 8)),
-        ai_primary_url=_env("AI_PRIMARY_URL", "http://192.168.0.226:8000/v1").rstrip("/"),
-        ai_primary_key=_env("AI_PRIMARY_KEY", "change-me-gateway-key"),
+        # No defaults: the gateway's address and key are never baked into the code. On Vercel they
+        # come from the sealed record in the Gist (see ai.published_gateway).
+        ai_primary_url=_env("AI_PRIMARY_URL", "").rstrip("/"),
+        ai_primary_key=_env("AI_PRIMARY_KEY", ""),
         ai_primary_model=_env("AI_PRIMARY_MODEL", "gemma"),
         ai_fallback_url=_env("AI_FALLBACK_URL", "http://127.0.0.1:11434/v1").rstrip("/"),
         ai_fallback_key=_env("AI_FALLBACK_KEY", "ollama"),

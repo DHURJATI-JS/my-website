@@ -38,7 +38,9 @@ Public pages and the public API only read this file (cached in memory) — they 
 so pages are fast and can't hit rate limits.
 
 ### The AI (reads each README)
-1. **Primary:** your OpenAI-compatible gateway — `AI_PRIMARY_URL=http://192.168.0.226:8000/v1`, model `gemma`.
+1. **Primary:** your OpenAI-compatible gateway, model `gemma`. On Vercel its address and key come from a
+   **sealed** record in the data Gist (see *Auto-update on Vercel* below); locally you can set
+   `AI_PRIMARY_URL` / `AI_PRIMARY_KEY` in `.env` to the gateway on your LAN.
 2. **Failsafe:** local Docker **Gemma 3 12B** (Ollama) — `AI_FALLBACK_URL=http://127.0.0.1:11434/v1`, model `gemma3:12b`.
 3. If both are down, visitors see a keyword-based *preview*; it is **never saved**, so the repo stays “new”
    and the AI analyses it on the next run.
@@ -118,9 +120,9 @@ Start Docker Desktop first.
      `data/portfolio.json` — `python scripts\sync.py` → `git add data/portfolio.json` → `git push`.
    * Or set `STORAGE_BACKEND=gist` + `GIST_ID` + `GIST_TOKEN` (a token with the *gist* scope) so admin
      changes are saved to a GitHub Gist and persist.
-4. **Your AI gateway is a LAN address (192.168.0.226).** Vercel's servers can't reach it (or `localhost`).
-   Run the AI locally as in step 3, or expose the gateway over HTTPS (e.g. Cloudflare Tunnel) and set
-   `AI_PRIMARY_URL` on Vercel. Each AI request handles one repo, so it fits the 60 s function limit
+4. **Your AI gateway is on your LAN.** Vercel's servers can't reach it (or `localhost`).
+   Run the AI locally as in step 3, or use the Cloudflare tunnel below (its address and key reach the site
+   sealed, never in plain text). Each AI request handles one repo, so it fits the 60 s function limit
    (`maxDuration` in `vercel.json`).
 5. **Cron:** `vercel.json` calls `/api/cron/sync` daily at 03:00 UTC (the Hobby plan allows daily crons).
    It only runs when `CRON_SECRET` is set (Vercel sends it as a Bearer token). It syncs GitHub and
@@ -180,9 +182,16 @@ scripts/                sync.py (CLI), unblock_ip.py, build_icons.py, hash_passw
 
 ## Auto-update on Vercel with a free Cloudflare tunnel
 
-Vercel can't reach your LAN gateway (`192.168.0.226`), so a free **Cloudflare quick tunnel** gives it a
-public `https://xxxx.trycloudflare.com` address. That address changes every time the tunnel restarts,
-so the tunnel script writes the current one into the data Gist and the site reads it from there.
+Vercel can't reach your LAN gateway, so a free **Cloudflare quick tunnel** gives it a random
+`https://xxxx.trycloudflare.com` address. That address changes every time the tunnel restarts, so the tunnel
+script **seals** the current address together with the gateway's `internet_key` (encrypted and signed with
+`SECRET_KEY`, `scripts/publish_endpoint.py`) and writes only that sealed record into the data Gist. The site's
+backend opens it; nobody else can read or change it, and the address and key never appear on any page, in the
+admin, in logs or in this repo.
+
+The tunnel only reaches the gateway's **internet door** (`127.0.0.1:8001`, see the AI Server README), which
+accepts nothing but the secret `internet_key` and small text-only chat requests - no uploads, files or other
+endpoints.
 
 1. **Token:** GitHub → Settings → Developer settings → *Fine-grained tokens* → Generate:
    *Public repositories* (read-only) + Account permission **Gists: Read and write**. Put it in `.env` as `GITHUB_TOKEN`.
@@ -190,7 +199,7 @@ so the tunnel script writes the current one into the data Gist and the site read
    creates a secret Gist with `data/portfolio.json`, saves `GIST_ID` to `.env` and writes `.env.vercel`.
    Paste `.env.vercel` into Vercel → *Settings → Environment Variables* (paste into the Key field to import all),
    redeploy, then delete `.env.vercel`.
-3. **Tunnel (on a PC on the same network as the gateway):** double-click `scripts\setup-tunnel.cmd`
+3. **Tunnel (on the PC that runs the gateway - its internet door only listens on that PC):** double-click `scripts\setup-tunnel.cmd`
    (or `winget install --id Cloudflare.cloudflared`, then
    `powershell -ExecutionPolicy Bypass -File scripts\install-tunnel-task.ps1`). It starts
    `scripts\start-tunnel.ps1` now and at every logon: it restarts cloudflared if it stops, republishes the new URL,
@@ -199,7 +208,9 @@ so the tunnel script writes the current one into the data Gist and the site read
 
 Quick tunnels are meant for testing (no uptime guarantee, ~200 requests in flight). The AI only works while that
 PC and the gateway are on; otherwise new repos show a keyword preview and get categorised on the next run.
-Set a real `AI_PRIMARY_KEY` on your gateway — the tunnel URL is public.
+`SECRET_KEY` must be the same in the PC's `.env` and on Vercel (otherwise the admin page says the record can't
+be opened). The script finds `gateway-keys.json` in `..\AI Server\`; set `AI_GATEWAY_KEYS_FILE` if it lives
+elsewhere. Check without uploading anything: `python scripts\publish_endpoint.py --check`.
 
 ## Customising
 * **Languages:** English, हिन्दी, मराठी, Español, Français, Deutsch, 日本語, Русский — edit/add in `portfolio/i18n.py`.

@@ -1,19 +1,23 @@
 # Exposes your AI gateway to Vercel with a FREE Cloudflare quick tunnel (no account, no domain)
 # and keeps the site pointed at it, even though the trycloudflare.com URL changes on every restart.
 #
-#   1. starts:  cloudflared tunnel --url <your gateway, from AI_PRIMARY_URL in .env,
-#               e.g. http://127.0.0.1:8000/v1 when the gateway runs on this PC>
+#   1. starts:  cloudflared tunnel --url <the gateway's internet door, http://127.0.0.1:8001>
+#               (that door only accepts the gateway's secret internet_key - see the AI Server README)
 #   2. reads the random https://xxxx.trycloudflare.com address it prints
-#   3. writes it to the data Gist (file ai-endpoint.json) - Vercel picks it up within ~20 s
+#   3. seals the address + internet_key with SECRET_KEY (scripts\publish_endpoint.py) and writes the
+#      sealed record to the data Gist - only the website's backend can open it. The address is never
+#      written to this script's log.
 #   4. every AUTO_SYNC_MINUTES asks the live site to sync GitHub + AI-categorise NEW repos
 #   5. if cloudflared stops, starts it again (new URL -> published again)
 #
-# Needs in .env: GIST_ID, GITHUB_TOKEN (or GIST_TOKEN), AI_PRIMARY_URL; SITE_URL + CRON_SECRET for step 4.
-# Install cloudflared once:  winget install --id Cloudflare.cloudflared
+# Needs in .env: GIST_ID, GITHUB_TOKEN (or GIST_TOKEN), SECRET_KEY (same as on Vercel),
+#                AI_GATEWAY_KEYS_FILE (path to the gateway's gateway-keys.json);
+#                SITE_URL + CRON_SECRET for step 4. Optional: AI_TUNNEL_ORIGIN, PYTHON.
+# Needs Python 3 (the gateway already uses it) and cloudflared:  winget install --id Cloudflare.cloudflared
 # Usage:  powershell -ExecutionPolicy Bypass -File scripts\start-tunnel.ps1
 # Run at every logon:  powershell -ExecutionPolicy Bypass -File scripts\install-tunnel-task.ps1
 param(
-    [string]$Origin = ""   # override the gateway address, e.g. http://192.168.0.226:8000
+    [string]$Origin = ""   # override the gateway's internet door (default http://127.0.0.1:8001)
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,6 +26,14 @@ $root = Split-Path $PSScriptRoot -Parent
 $logDir = Join-Path $env:LOCALAPPDATA "portfolio-tunnel"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $logFile = Join-Path $logDir "tunnel.log"
+# Older versions of this script wrote the tunnel's address into the log - take those out.
+if (Test-Path $logFile) {
+    try {
+        $old = Get-Content -Path $logFile -Raw -ErrorAction Stop
+        $clean = [regex]::Replace($old, 'https://[a-z0-9-]+\.trycloudflare\.com\S*', '[address hidden]')
+        if ($clean -ne $old) { Set-Content -Path $logFile -Value $clean -NoNewline }
+    } catch {}
+}
 
 function Log([string]$msg) {
     $line = "{0}  {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $msg
@@ -52,8 +64,6 @@ $envVals = Read-DotEnv (Join-Path $root ".env")
 $gistId = Get-Setting $envVals "GIST_ID"
 $token = Get-Setting $envVals "GIST_TOKEN"
 if ([string]::IsNullOrWhiteSpace($token)) { $token = Get-Setting $envVals "GITHUB_TOKEN" }
-$endpointFile = Get-Setting $envVals "AI_ENDPOINT_FILE" "ai-endpoint.json"
-$primary = Get-Setting $envVals "AI_PRIMARY_URL" "http://192.168.0.226:8000/v1"
 $siteUrl = (Get-Setting $envVals "SITE_URL").TrimEnd("/")
 $cronSecret = Get-Setting $envVals "CRON_SECRET"
 $syncMinutes = [Math]::Max(5, [int](Get-Setting $envVals "AUTO_SYNC_MINUTES" "60"))
@@ -63,11 +73,21 @@ if ([string]::IsNullOrWhiteSpace($gistId) -or [string]::IsNullOrWhiteSpace($toke
     exit 1
 }
 
-$primaryUri = [Uri]$primary
-if ([string]::IsNullOrWhiteSpace($Origin)) {
-    $Origin = "{0}://{1}:{2}" -f $primaryUri.Scheme, $primaryUri.Host, $primaryUri.Port
+if ([string]::IsNullOrWhiteSpace($Origin)) { $Origin = Get-Setting $envVals "AI_TUNNEL_ORIGIN" "http://127.0.0.1:8001" }
+$originUri = [Uri]$Origin
+$apiPath = "/v1"
+$publisher = Join-Path $PSScriptRoot "publish_endpoint.py"
+
+# Python for publish_endpoint.py (standard library only): PYTHON in .env, else python, else the py launcher.
+$python = @()
+$pySetting = Get-Setting $envVals "PYTHON"
+if ($pySetting) { $python = @($pySetting) }
+elseif (Get-Command python -ErrorAction SilentlyContinue | Where-Object { $_.Source -notlike "*\WindowsApps\*" }) { $python = @("python") }
+elseif (Get-Command py -ErrorAction SilentlyContinue) { $python = @("py", "-3") }
+if ($python.Count -eq 0) {
+    Log "ERROR: Python 3 not found (needed to seal the tunnel record). Install it or set PYTHON=<path> in .env"
+    exit 1
 }
-$apiPath = $primaryUri.AbsolutePath.TrimEnd("/")   # usually /v1
 
 $cloudflared = (Get-Command cloudflared -ErrorAction SilentlyContinue).Source
 if (-not $cloudflared) {
@@ -81,19 +101,15 @@ if (-not $cloudflared) {
     exit 1
 }
 
-$gistHeaders = @{
-    Authorization          = "Bearer $token"
-    Accept                 = "application/vnd.github+json"
-    "X-GitHub-Api-Version" = "2022-11-28"
-    "User-Agent"           = "portfolio-tunnel"
-}
-
-function Publish-Url([string]$url) {
-    $payload = @{ url = $url; origin = $Origin; updated_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"); host = $env:COMPUTERNAME } |
-        ConvertTo-Json -Compress
-    $body = @{ files = @{ $endpointFile = @{ content = $payload } } } | ConvertTo-Json -Depth 5
-    Invoke-RestMethod -Method Patch -Uri "https://api.github.com/gists/$gistId" -Headers $gistHeaders `
-        -Body ([Text.Encoding]::UTF8.GetBytes($body)) -ContentType "application/json; charset=utf-8" | Out-Null
+function Publish-Sealed([string]$url) {
+    # Seals {address, internet_key} with SECRET_KEY and writes it to the Gist. Prints nothing secret.
+    $exe = $python[0]
+    $pre = @($python | Select-Object -Skip 1)
+    $ErrorActionPreference = "Continue"   # Python's own messages on stderr must not stop this script
+    $out = & $exe @pre $publisher --url $url 2>&1 | Out-String
+    $ok = ($LASTEXITCODE -eq 0)
+    Log ("publish: " + $out.Trim())
+    return $ok
 }
 
 function Invoke-SiteSync {
@@ -118,12 +134,13 @@ function Read-Shared([string]$path) {
 
 # A previous run (maybe pointing at another address) may have left its cloudflared behind - stop it.
 Get-CimInstance Win32_Process -Filter "Name='cloudflared.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like "*portfolio-tunnel*" -or $_.CommandLine -like "*--url $Origin*" } |
+    Where-Object { $_.CommandLine -like "*portfolio-tunnel*" -or $_.CommandLine -like "*--url $Origin*" -or
+                   $_.CommandLine -like "*--url http://localhost:8000*" -or $_.CommandLine -like "*--url http://127.0.0.1:8000*" } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 function Wait-Origin([int]$seconds) {
     # True once something answers on the gateway's port (it may start after the tunnel at boot).
-    $u = [Uri]$Origin
+    $u = $originUri
     $deadline = (Get-Date).AddSeconds($seconds)
     do {
         $c = New-Object Net.Sockets.TcpClient
@@ -133,7 +150,7 @@ function Wait-Origin([int]$seconds) {
     return $false
 }
 
-Log "Gateway: $Origin  ->  Cloudflare quick tunnel (gist $($gistId.Substring(0, [Math]::Min(7, $gistId.Length)))..., file $endpointFile)"
+Log "Gateway internet door: $Origin  ->  Cloudflare quick tunnel (its address is published sealed; never logged here)"
 $backoff = 5
 while ($true) {
   try {
@@ -141,7 +158,7 @@ while ($true) {
     $cfErr = Join-Path $logDir "cloudflared.err.log"
     foreach ($f in @($cfLog, $cfErr)) { if (Test-Path $f) { Remove-Item $f -Force -ErrorAction SilentlyContinue } }
     $proc = Start-Process -FilePath $cloudflared -PassThru -WindowStyle Hidden -RedirectStandardError $cfErr `
-        -ArgumentList @("tunnel", "--no-autoupdate", "--url", $Origin, "--http-host-header", $primaryUri.Authority, "--logfile", "`"$cfLog`"")
+        -ArgumentList @("tunnel", "--no-autoupdate", "--url", $Origin, "--http-host-header", $originUri.Authority, "--logfile", "`"$cfLog`"")
 
     $url = $null
     for ($i = 0; $i -lt 90 -and -not $proc.HasExited -and -not $url; $i++) {
@@ -152,23 +169,35 @@ while ($true) {
     }
 
     if ($url) {
-        try {
-            Publish-Url ($url + $apiPath)
-            Log "Tunnel up: $url$apiPath  (published to the Gist)"
+        $api = $url + $apiPath
+        $url = $null
+        # Publish once the gateway answers (it creates gateway-keys.json on its first start).
+        $up = Wait-Origin 900
+        if (-not $up) { Log "Gateway $Origin not up after 15 min - publishing anyway" }
+        $published = Publish-Sealed $api
+        if ($published) {
+            Log "Tunnel up (address kept private - sealed record published)"
             $backoff = 5
-        } catch {
-            Log "Could not write the Gist: $($_.Exception.Message)"
+        } else {
+            Log "Tunnel up, but the sealed record could not be published yet - trying again every 2 minutes"
         }
         Start-Sleep -Seconds 30          # let Vercel re-read the Gist (it checks every 20 s)
-        if (Wait-Origin 900) { Invoke-SiteSync } else { Log "Gateway $Origin not up after 15 min - skipping this sync" }
+        if ($published -and ($up -or (Wait-Origin 1))) { Invoke-SiteSync }
         $nextSync = (Get-Date).AddMinutes($syncMinutes)
+        $nextTry = (Get-Date).AddMinutes(2)
         while (-not $proc.HasExited) {
             Start-Sleep -Seconds 15
+            if (-not $published -and (Get-Date) -ge $nextTry) {
+                $published = Publish-Sealed $api
+                if ($published) { Log "Sealed record published (address kept private)"; $backoff = 5 }
+                $nextTry = (Get-Date).AddMinutes(2)
+            }
             if ((Get-Date) -ge $nextSync) {
                 if (Wait-Origin 1) { Invoke-SiteSync } else { Log "Gateway $Origin is down - skipping this sync" }
                 $nextSync = (Get-Date).AddMinutes($syncMinutes)
             }
         }
+        $api = $null
         Log "cloudflared exited (code $($proc.ExitCode)) - restarting"
     } else {
         Log "No trycloudflare URL appeared - see $cfErr"

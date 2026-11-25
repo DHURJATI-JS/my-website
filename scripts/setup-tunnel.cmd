@@ -12,8 +12,8 @@ if errorlevel 1 (
   )
 ) else (echo already installed)
 echo.
-echo === 2/3  AI gateway reachable? ===
-powershell -NoProfile -Command "$u=[Uri]((Get-Content .env | Where-Object { $_ -match '^AI_PRIMARY_URL=' } | Select-Object -First 1) -replace '^AI_PRIMARY_URL=',''); if(-not $u){$u=[Uri]'http://192.168.0.226:8000/v1'}; if((Test-NetConnection $u.Host -Port $u.Port -WarningAction SilentlyContinue).TcpTestSucceeded){Write-Host ('OK - ' + $u.Authority) -ForegroundColor Green}else{Write-Host ('NOT reachable: ' + $u.Authority + '  (is the gateway PC on?) - the tunnel will still start and work once it is.') -ForegroundColor Yellow}"
+echo === 2/3  AI gateway's internet door (this PC, port 8001) answering? ===
+powershell -NoProfile -Command "$o=(Get-Content .env -ErrorAction SilentlyContinue | Where-Object { $_ -match '^AI_TUNNEL_ORIGIN=' } | Select-Object -First 1) -replace '^AI_TUNNEL_ORIGIN=',''; if(-not $o){$o='http://127.0.0.1:8001'}; $u=[Uri]$o; if((Test-NetConnection $u.Host -Port $u.Port -WarningAction SilentlyContinue).TcpTestSucceeded){Write-Host 'OK - the gateway is running on this PC' -ForegroundColor Green}else{Write-Host 'Not answering yet (start the gateway on THIS PC: AI Server\3_start_gateway.bat) - the tunnel will still start and work once it is.' -ForegroundColor Yellow}"
 echo.
 echo === 3/3  tunnel task ===
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-tunnel-task.ps1"

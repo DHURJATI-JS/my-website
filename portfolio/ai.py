@@ -1,10 +1,14 @@
 """AI repo analyst: reads a README, picks the group and writes the summary.
 
 Provider chain (both are OpenAI-compatible /v1/chat/completions endpoints):
-  1. gateway - your LAN gateway  (AI_PRIMARY_URL,  model "gemma"). On Vercel the
-     current public Cloudflare quick-tunnel URL is read from the data Gist
-     (file AI_ENDPOINT_FILE, written by scripts/start-tunnel.ps1) instead.
+  1. gateway - your AI gateway (model "gemma"). On Vercel its current Cloudflare
+     quick-tunnel address AND key come from a sealed record in the data Gist (file
+     AI_ENDPOINT_FILE, written by scripts/publish_endpoint.py on the PC): encrypted and
+     signed with SECRET_KEY, so only this backend can read it. Locally, AI_PRIMARY_URL /
+     AI_PRIMARY_KEY in .env can point at the gateway on your LAN instead.
   2. local   - Docker Gemma 3 12B via Ollama (AI_FALLBACK_URL, "gemma3:12b")
+Addresses and keys never leave the backend: the admin page, cron output and error
+messages only show labels (see redact()).
 If both are down, the site shows a keyword-based *preview* (never saved), so
 the repo is still treated as "new" and the AI analyses it on the next run.
 """
@@ -16,11 +20,11 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
-from . import httpclient
+from . import httpclient, sealed
 from .config import settings
 
 CATEGORIES = ("social", "industry")
@@ -30,45 +34,98 @@ CATEGORIES = ("social", "industry")
 class Provider:
     key: str
     label: str
-    base_url: str
-    api_key: str
+    base_url: str = field(repr=False)  # never printed, logged or sent to a browser
+    api_key: str = field(repr=False)
     model: str
 
 
-def published_gateway_url() -> str:
-    """The gateway's public tunnel URL published in the data Gist ('' if none).
+ENDPOINT_PURPOSE = "ai-endpoint"
+endpoint_status = {"problem": ""}  # shown on the admin page when the sealed record can't be used
 
-    scripts/start-tunnel.ps1 runs a Cloudflare quick tunnel on the home PC and
-    writes {"url": "https://<random>.trycloudflare.com/v1", ...} to the Gist
-    every time the tunnel (and so its random URL) restarts.
+
+def published_gateway() -> tuple[str, str]:
+    """(address, key) of the gateway's Cloudflare tunnel, from the data Gist; ("", "") if none.
+
+    scripts/start-tunnel.ps1 starts the tunnel on the home PC and, each time its random address
+    changes, scripts/publish_endpoint.py seals {"url", "key"} with SECRET_KEY into the Gist file
+    AI_ENDPOINT_FILE. Only this backend can open it; a changed or forged record is ignored.
     """
     name = settings.ai_endpoint_file
     if not name or settings.storage_backend != "gist":
-        return ""
+        return "", ""
     try:
         from .store import store  # local import: store must not import ai
 
         raw = store.extra_file(name)
         data = json.loads(raw) if raw else {}
     except Exception:  # noqa: BLE001 - never let this break the site
-        return ""
-    url = str(data.get("url") or "").strip().rstrip("/") if isinstance(data, dict) else ""
-    return url if url.startswith("https://") else ""
+        return "", ""
+    if not isinstance(data, dict) or not data:
+        return "", ""
+    if "box" in data:
+        opened = sealed.open_sealed(data, settings.secret_key, ENDPOINT_PURPOSE)
+        if not opened:
+            endpoint_status["problem"] = ("The gateway's sealed tunnel record can't be opened: SECRET_KEY in the "
+                                          "PC's .env must be the same as on Vercel.")
+            return "", ""
+        url, key = str(opened.get("url") or ""), str(opened.get("key") or "")
+    else:  # an older plain record (address only) - replaced by a sealed one when the PC's tunnel restarts
+        url, key = str(data.get("url") or ""), settings.ai_primary_key
+    url = url.strip().rstrip("/")
+    if not url.startswith("https://"):
+        return "", ""
+    endpoint_status["problem"] = ""
+    return url, key
+
+
+_URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://[^\s'\"<>()]+", re.I)
+_TUNNEL_HOST_RE = re.compile(r"\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.trycloudflare\.com\b", re.I)
+_IPV4_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b")
+_IPV6_CANDIDATE_RE = re.compile(r"\[?[0-9a-f]*:[0-9a-f:]*:[0-9a-f:.%]*\]?(?::\d{1,5})?", re.I)
+
+
+def _hide_ipv6(match: re.Match) -> str:
+    token = match.group(0)
+    core = token.split("]")[0].lstrip("[").split("%")[0]
+    try:
+        ipaddress.IPv6Address(core)
+    except ValueError:
+        return token
+    return "[hidden]"
+
+
+def redact(text: object, *chain: Provider) -> str:
+    """Text for the admin page, cron output and logs with every address and key taken out."""
+    out = str(text)
+    for provider in chain or tuple(_last_chain):
+        parts = urlsplit(provider.base_url)
+        for secret in (provider.base_url, parts.netloc, parts.hostname or "", provider.api_key):
+            if secret and len(secret) >= 4:
+                out = out.replace(secret, "[hidden]")
+    out = _URL_RE.sub("[hidden]", out)
+    out = _TUNNEL_HOST_RE.sub("[hidden]", out)
+    out = _IPV4_RE.sub("[hidden]", out)
+    return _IPV6_CANDIDATE_RE.sub(_hide_ipv6, out)
+
+
+_last_chain: list[Provider] = []
 
 
 def providers() -> list[Provider]:
     chain = []
-    # On Vercel the LAN address is unreachable, so prefer the published tunnel URL.
-    tunnel_url = published_gateway_url() if (settings.on_vercel or not settings.ai_primary_url) else ""
+    # On Vercel the LAN address is unreachable, so prefer the published tunnel.
+    tunnel_url, tunnel_key = (published_gateway() if (settings.on_vercel or not settings.ai_primary_url)
+                              else ("", ""))
     if tunnel_url:
         chain.append(Provider("gateway", "OpenAI gateway (Cloudflare tunnel)", tunnel_url,
-                              settings.ai_primary_key, settings.ai_primary_model))
+                              tunnel_key, settings.ai_primary_model))
     elif settings.ai_primary_url:
         chain.append(Provider("gateway", "OpenAI gateway", settings.ai_primary_url,
                               settings.ai_primary_key, settings.ai_primary_model))
     if settings.ai_fallback_url:
         chain.append(Provider("local", "Local Docker Gemma 3 12B", settings.ai_fallback_url,
                               settings.ai_fallback_key, settings.ai_fallback_model))
+    _last_chain[:] = chain
     return chain
 
 
@@ -175,9 +232,9 @@ def _chat(provider: Provider, prompt: str, *, structured: bool, schema: dict[str
                                   json_body=payload, connect_timeout=settings.ai_connect_timeout,
                                   read_timeout=settings.ai_read_timeout)
     except httpclient.FetchError as exc:
-        raise AIError(f"{provider.label} unreachable ({exc})") from exc
+        raise AIError(f"{provider.label} unreachable ({redact(exc, provider)})") from None
     if resp.status >= 400:
-        raise AIError(f"{provider.label} HTTP {resp.status}: {resp.text()[:160]}", resp.status)
+        raise AIError(f"{provider.label} HTTP {resp.status}: {redact(resp.text()[:160], provider)}", resp.status)
     try:
         return resp.json()["choices"][0]["message"]["content"] or ""
     except (ValueError, KeyError, IndexError, TypeError) as exc:
@@ -262,7 +319,7 @@ def analyze(entry: dict[str, Any]) -> dict[str, Any]:
             result.update(method="ai", provider=provider.key, model=provider.model,
                           seconds=round(time.monotonic() - started, 1))
             return result
-    raise AIUnavailable("; ".join(errors) or "no AI provider is configured")
+    raise AIUnavailable(redact("; ".join(errors)) or "no AI provider is configured")
 
 
 # ------------------------------------------------------------- translation --
@@ -344,7 +401,7 @@ def translate(fields: dict[str, Any], lang: str) -> dict[str, Any]:
             except ValueError as exc:
                 errors.append(f"{provider.label}: bad translation ({exc})")
                 continue
-    raise AIUnavailable("; ".join(errors) or "no AI provider is configured")
+    raise AIUnavailable(redact("; ".join(errors)) or "no AI provider is configured")
 
 
 def ping(provider: Provider) -> dict[str, Any]:
@@ -362,10 +419,10 @@ def ping(provider: Provider) -> dict[str, Any]:
                 models = []
         error = "" if ok else f"HTTP {resp.status}"
     except httpclient.FetchError as exc:
-        ok, models, error = False, [], str(exc)
-    return {
+        ok, models, error = False, [], redact(exc, provider)
+    return {  # no address or key: this goes to the browser
         "key": provider.key, "label": provider.label, "model": provider.model,
-        "url": provider.base_url, "online": ok, "models": models, "error": error[:200],
+        "online": ok, "models": models, "error": error[:200],
         "latency_ms": round((time.monotonic() - started) * 1000),
     }
 

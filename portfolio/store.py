@@ -245,7 +245,7 @@ class GistBackend:
             raise StoreError(f"Gist write failed (HTTP {resp.status}){detail}")
 
     def describe(self) -> dict[str, Any]:
-        return {"backend": "gist", "location": f"gist {self.gist_id[:7]}… / {self.filename}", "persistent": True}
+        return {"backend": "gist", "location": "private GitHub Gist", "persistent": True}
 
 
 class Store:
