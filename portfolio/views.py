@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from datetime import date
 from typing import Any
+from urllib.parse import quote
 
 from . import ai, categories, lockout, occasions, research, translate
 from .config import settings
@@ -145,7 +146,7 @@ _banner_cache: dict[tuple, str] = {}
 
 
 def banner(entry: dict[str, Any]) -> str:
-    """Card picture: the repo's GitHub social preview, else the README's top image, else GitHub's own card."""
+    """Card picture: the repo's GitHub social preview, else the README's top image, else a generated card."""
     custom = safe_url(entry.get("social_image"))
     if custom:
         return custom
@@ -154,8 +155,8 @@ def banner(entry: dict[str, Any]) -> str:
         _banner_cache[cache_key] = extract_banner(entry.get("readme_html", ""))
     if _banner_cache[cache_key]:
         return _banner_cache[cache_key]
-    full_name = entry.get("full_name") or ""
-    return f"https://opengraph.githubassets.com/1/{full_name}" if "/" in full_name else ""
+    # No picture anywhere: a generated card (portfolio/ogimage.py), served by /og/<name>.svg
+    return f"/og/{quote(entry.get('name', ''), safe='')}.svg" if entry.get("name") else ""
 
 
 def project_cards() -> list[dict[str, Any]]:
@@ -275,9 +276,24 @@ PUBLIC_FIELDS = ("name", "title", "description", "summary", "problem", "key_poin
 
 def public_card(card: dict[str, Any]) -> dict[str, Any]:
     data = {field: card[field] for field in PUBLIC_FIELDS}
+    if data["banner"].startswith("/") and settings.site_url:
+        data["banner"] = settings.site_url + data["banner"]  # absolute for other sites (e.g. the profile README)
     names = categories.meta(store.get(), translator("en"))
     data["category_name"] = names.get(card["category"], names["other"])["label"]
     return data
+
+
+def og_svg(name: str) -> str | None:
+    """The generated preview card of a visible project (None for unknown/hidden/private repos)."""
+    from . import ogimage
+
+    wanted = name.lower()
+    card = next((c for c in project_cards() if c["name"].lower() == wanted), None)
+    if card is None:
+        return None
+    doc = store.get()
+    accent = next((c["color"] for c in categories.custom(doc) if c["key"] == card["category"]), "")
+    return ogimage.render(card, settings.github_username, accent)
 
 
 def project_detail(name: str, lang: str = "en") -> dict[str, Any] | None:

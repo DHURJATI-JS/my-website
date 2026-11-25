@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 
 from . import ai, jobs, ratelimit as rl, views
 from .config import settings
@@ -54,6 +54,17 @@ def api_project(request: Request, name: str, lang: str = "en"):
     if detail is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return JSONResponse(detail, headers={"Cache-Control": _PUBLIC_CACHE})
+
+
+@router.get("/og/{name}.svg", include_in_schema=False)
+@limiter.limit(rl.API)
+def og_image(request: Request, name: str):
+    """Generated preview picture for a project that has no social preview or README image."""
+    svg = views.og_svg(name[:120])
+    if svg is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return Response(svg, media_type="image/svg+xml",
+                    headers={"Cache-Control": "public, max-age=3600, s-maxage=86400, stale-while-revalidate=86400"})
 
 
 @router.get("/api/research")

@@ -7,6 +7,7 @@ GitHub API, so the site stays fast and never hits GitHub rate limits.
 from __future__ import annotations
 
 import base64
+import json
 import posixpath
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -158,6 +159,38 @@ def fetch_social_image(full_name: str) -> str | None:
     return url if url.startswith(_CUSTOM_OG_HOST) and len(url) <= 500 else ""
 
 
+def fetch_social_images_graphql(full_names: list[str]) -> dict[str, str]:
+    """Custom social-preview URLs for many repos in one GraphQL call (needs GITHUB_TOKEN).
+
+    Returns {full_name: url or ""}; repos missing from the answer are left out (caller falls back).
+    """
+    if not settings.github_token or not full_names:
+        return {}
+    out: dict[str, str] = {}
+    for start in range(0, len(full_names), 40):
+        chunk = full_names[start:start + 40]
+        parts = []
+        for i, full_name in enumerate(chunk):
+            owner, _, name = full_name.partition("/")
+            parts.append(f'r{i}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) '
+                         "{ openGraphImageUrl usesCustomOpenGraphImage }")
+        try:
+            resp = httpclient.request("POST", API + "/graphql", headers=_headers("application/json"),
+                                      json_body={"query": "query { " + " ".join(parts) + " }"},
+                                      connect_timeout=6, read_timeout=20)
+            data = (resp.json() or {}).get("data") or {} if resp.ok else {}
+        except (httpclient.FetchError, ValueError):
+            continue
+        for i, full_name in enumerate(chunk):
+            node = data.get(f"r{i}")
+            if not isinstance(node, dict):
+                continue
+            url = str(node.get("openGraphImageUrl") or "")
+            out[full_name] = url if node.get("usesCustomOpenGraphImage") and url.startswith("https://") \
+                and len(url) <= 500 else ""
+    return out
+
+
 def _excerpt(markdown: str) -> str:
     text = re.sub(r"<!--.*?-->", "", markdown, flags=re.S)
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
@@ -288,8 +321,13 @@ def collect(doc: dict[str, Any]) -> dict[str, Any]:
     shown = [(key, result["repos"][key]["full_name"]) for key in result["repos"]
              if include_forks or not result["repos"][key]["fork"]]
 
+    # Social previews: one GraphQL call when a token is set, else (or for anything it missed) the repo page.
+    via_graphql = fetch_social_images_graphql([full_name for _, full_name in shown])
+
     def social(item: tuple[str, str]) -> tuple[str, str | None]:
         key, full_name = item
+        if full_name in via_graphql:
+            return key, via_graphql[full_name]
         return key, fetch_social_image(full_name)
 
     with ThreadPoolExecutor(max_workers=6) as pool:

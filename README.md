@@ -53,6 +53,7 @@ tech stack, audience). Once saved, a repo's group is **permanent**.
 | **2 · Categorise NEW repos only** *(recommended)* | Sync, then the AI reads only repos **not yet in the JSON**. Old groups stay. |
 | **3 · Re-verify & re-categorise ALL** | Sync, then the AI re-reads every README (optionally overriding your manual choices). |
 | Per repo | Change the group (locks it) — **Social impact**, **Industry & startup**, **Other** or one of your own categories (Other and your own are only ever chosen by you, never by the AI) — **Featured**, **Hidden**, re-run AI, or “forget” the result (→ new again). |
+| Card pictures | Each project card shows the repo's GitHub **social preview** (read during sync; one GraphQL call with `GITHUB_TOKEN`, else from the repo page), else the first real picture in its README, else a **generated card** (`/og/<repo>.svg`: name, summary, tech, group colour). |
 | Categories | Add your own groups with an icon and a colour (a ready-made **Games** group is included), reorder, rename or delete them (their projects move to Other). |
 | Translations | The AI translates each project's title, summary and key points (and your headline/biography) into every site language, once, and saves it. New or changed projects are translated by the daily sync; **Translate missing now** does it on demand. |
 | Festivals & occasions | Automatic festival greetings with effects, your own images/greetings per festival, your own occasions, a preview, and **Refresh dates · next 5 years**. See below. |
