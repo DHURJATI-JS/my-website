@@ -209,3 +209,30 @@ def html_to_text(fragment: str, limit: int = 4000) -> str:
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n\s*\n+", "\n\n", text)
     return text.strip()[:limit]
+
+
+# --------------------------------------------------------------- banners --
+# Small or decorative images that are never a project's banner.
+_BANNER_SKIP = re.compile(
+    r"shields\.io|badgen|forthebadge|badge|skillicons|komarev|visitor|hits\.|typing-svg|readme-typing|"
+    r"ghstats|readme-stats|streak|wakatime|icons8|/icons?/|favicon|avatar|logo|wordmark|app-icon|"
+    r"\.gif(\?|$)|\.mp4(\?|$)",
+    re.I,
+)
+_BANNER_HINT = re.compile(r"banner|hero|cover|social|preview|screenshot|demo", re.I)
+
+
+def extract_banner(cleaned_html: str, scan: int = 20) -> str:
+    """The README's top picture, if it looks like a banner or screenshot (not a badge, logo or GIF)."""
+    for tag in _IMG_RE.findall(cleaned_html or "")[:scan]:
+        attrs = {k.lower(): htmllib.unescape(v) for k, v in _ATTR_RE.findall(tag)}
+        src = attrs.get("src", "")
+        if not src.startswith("https://") or len(src) > 500:
+            continue
+        if _BANNER_SKIP.search(src) and not _BANNER_HINT.search(src.rsplit("/", 1)[-1]):
+            continue
+        width = attrs.get("width", "").rstrip("px").strip()
+        if width.isdigit() and int(width) < 300:
+            continue
+        return src
+    return ""

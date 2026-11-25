@@ -11,6 +11,11 @@
 
     {# AI status · theme · login — always visible (beside the burger on phones, at the end on desktop) #}
     <div class="nav-tools ms-auto ms-lg-2 order-lg-last">
+      {% if lang != 'en' %}
+      {# Failsafe: always-visible way back to English, labelled in English, for anyone who
+         picked (or was given) a language they cannot read. #}
+      <a class="lang-escape" href="{{ lang_url('en') }}" hreflang="en" lang="en" title="Switch to English" aria-label="Switch to English">{{ icon('language') }}<span>EN</span></a>
+      {% endif %}
       <span class="ai-status" id="aiStatus" data-state="checking" role="status" aria-live="polite" title="{{ t('ai_checking') }}">
         <span class="ai-dot" aria-hidden="true"></span>
         <span class="ai-short" aria-hidden="true">{{ t('ai_short') }}</span>
@@ -47,7 +52,7 @@
              aria-expanded="false" aria-label="{{ t('language') }}">{{ icon('language') }}<span>{{ langs[lang] }}</span></a>
           <ul class="dropdown-menu dropdown-menu-end lang-menu" aria-labelledby="langMenu">
             {% for code, label in langs.items() %}
-            <li><a class="dropdown-item{% if code == lang %} active{% endif %}" href="{{ lang_url(code) }}" hreflang="{{ code }}" lang="{{ code }}">{{ label }}</a></li>
+            <li><a class="dropdown-item{% if code == lang %} active{% endif %}" href="{{ lang_url(code) }}" hreflang="{{ code }}"><span lang="{{ code }}">{{ label }}</span>{% if code != 'en' %} <small class="lang-en" lang="en">{{ lang_en[code] }}</small>{% endif %}</a></li>
             {% endfor %}
           </ul>
         </li>

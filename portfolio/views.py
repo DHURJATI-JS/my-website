@@ -5,13 +5,17 @@ import re
 from datetime import date
 from typing import Any
 
-from . import ai, research
+from . import ai, categories, lockout, occasions, research, translate
 from .config import settings
 from .github import safe_url
+from .i18n import translator
+from .sanitize import extract_banner
 from .store import store
 
-GROUP_ICONS = {"social": "handshake", "industry": "rocket", "other": "code"}
-CATEGORY_KEYS = ("social", "industry", "other")  # "other" is only ever chosen by hand in /admin
+# Built-in groups. Custom ones (with their own icons) come from categories.py; "other" and every
+# custom group are only ever chosen by hand in /admin.
+GROUP_ICONS = dict(categories.BUILTIN_ICONS)
+CATEGORY_KEYS = categories.BUILTIN
 _SMALL_WORDS = {"and", "or", "of", "the", "a", "an", "for", "from", "to", "in", "on", "with", "by"}
 _ACRONYMS = {"ai": "AI", "mvp": "MVP", "api": "API", "ui": "UI", "ux": "UX", "ml": "ML", "llm": "LLM",
              "hr": "HR", "crm": "CRM", "erp": "ERP", "sql": "SQL", "iot": "IoT", "ar": "AR", "vr": "VR",
@@ -137,6 +141,23 @@ def visible_entries(doc: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     ]
 
 
+_banner_cache: dict[tuple, str] = {}
+
+
+def banner(entry: dict[str, Any]) -> str:
+    """Card picture: the repo's GitHub social preview, else the README's top image, else GitHub's own card."""
+    custom = safe_url(entry.get("social_image"))
+    if custom:
+        return custom
+    cache_key = (entry.get("full_name"), entry.get("readme_sha"))
+    if cache_key not in _banner_cache:
+        _banner_cache[cache_key] = extract_banner(entry.get("readme_html", ""))
+    if _banner_cache[cache_key]:
+        return _banner_cache[cache_key]
+    full_name = entry.get("full_name") or ""
+    return f"https://opengraph.githubassets.com/1/{full_name}" if "/" in full_name else ""
+
+
 def project_cards() -> list[dict[str, Any]]:
     doc = store.get()
     if _cards_cache["rev"] == store.revision:
@@ -161,9 +182,10 @@ def project_cards() -> list[dict[str, Any]]:
             "description": entry.get("description", ""), "summary": summary,
             "problem": analysis.get("problem", ""), "key_points": analysis.get("key_points") or [],
             "reason": analysis.get("reason", ""), "audience": analysis.get("audience", ""),
-            "tech": tech, "category": analysis.get("category", "industry"), "status": status,
+            "tech": tech, "category": categories.resolve(doc, analysis.get("category", "industry")), "status": status,
             "provider": analysis.get("provider", ""), "model": analysis.get("model", ""),
             "confidence": int(round(confidence * 100)) if isinstance(confidence, (int, float)) and status != "pending" else None,
+            "banner": banner(entry),
             "language": entry.get("language", ""), "lang_slug": lang_slug(entry.get("language", "")),
             "stars": entry.get("stars", 0), "forks": entry.get("forks", 0),
             "issue_count": open_issues.get(name.lower(), 0), "license": entry.get("license", ""),
@@ -173,12 +195,37 @@ def project_cards() -> list[dict[str, Any]]:
             "featured": name.lower() in featured, "featured_rank": featured.index(name.lower()) if name.lower() in featured else 999,
             "archived": bool(entry.get("archived")), "has_readme": bool(entry.get("readme_html")),
             "research": name.lower() in research_names,
+            "translated": False,
+            "_i18n": translate.repo_translations(entry),  # never sent to visitors as-is
         }
         cards.append(card)
     cards.sort(key=lambda c: c["updated_at"], reverse=True)
     cards.sort(key=lambda c: c["featured_rank"])
     _cards_cache.update(rev=store.revision, cards=cards)
     return cards
+
+
+_localized_cache: dict[str, Any] = {"rev": None, "by_lang": {}}
+
+
+def cards_for(lang: str) -> list[dict[str, Any]]:
+    """project_cards() with the AI-written text in the visitor's language where a translation exists."""
+    cards = project_cards()
+    if lang not in translate.TARGET_LANGS:
+        return cards
+    if _localized_cache["rev"] != store.revision:
+        _localized_cache.update(rev=store.revision, by_lang={})
+    cached = _localized_cache["by_lang"].get(lang)
+    if cached is not None:
+        return cached
+    out = []
+    for card in cards:
+        tr = card["_i18n"].get(lang)
+        if tr:
+            card = {**card, **{k: tr[k] for k in translate.REPO_FIELDS if tr.get(k)}, "translated": True}
+        out.append(card)
+    _localized_cache["by_lang"][lang] = out
+    return out
 
 
 _research_cache: dict[str, Any] = {"rev": None, "items": []}
@@ -222,29 +269,35 @@ def public_research(item: dict[str, Any]) -> dict[str, Any]:
 
 PUBLIC_FIELDS = ("name", "title", "description", "summary", "problem", "key_points", "reason", "audience",
                  "tech", "category", "status", "confidence", "language", "stars", "forks", "issue_count",
-                 "license", "topics", "homepage", "html_url", "created_at", "updated_at", "featured", "archived")
+                 "license", "topics", "homepage", "html_url", "created_at", "updated_at", "featured", "archived",
+                 "banner", "translated")
 
 
 def public_card(card: dict[str, Any]) -> dict[str, Any]:
-    return {field: card[field] for field in PUBLIC_FIELDS}
+    data = {field: card[field] for field in PUBLIC_FIELDS}
+    names = categories.meta(store.get(), translator("en"))
+    data["category_name"] = names.get(card["category"], names["other"])["label"]
+    return data
 
 
-def project_detail(name: str) -> dict[str, Any] | None:
+def project_detail(name: str, lang: str = "en") -> dict[str, Any] | None:
     wanted = name.lower()
-    for card in project_cards():
+    for card in cards_for(lang):
         if card["name"].lower() == wanted:
             entry = store.get()["repos"].get(card["key"], {})
             return {**public_card(card), "readme_html": entry.get("readme_html", "")}
     return None
 
 
-def home(doc: dict[str, Any]) -> dict[str, Any]:
-    cards = project_cards()
+def home(doc: dict[str, Any], lang: str = "en") -> dict[str, Any]:
+    cards = cards_for(lang)
     profile = doc["profile"]
+    profile_tr = translate.profile_translation(doc, lang)
     groups = []
-    for key in CATEGORY_KEYS:
+    for key in categories.keys(doc):
         repos = [c for c in cards if c["category"] == key]
-        groups.append({"key": key, "icon": GROUP_ICONS[key], "repos": repos})
+        groups.append({"key": key, "repos": repos})
+    by_key = {g["key"]: len(g["repos"]) for g in groups}
     user = doc["github"].get("user") or {}
     events = []
     for event in (doc["github"].get("events") or [])[:8]:
@@ -254,18 +307,19 @@ def home(doc: dict[str, Any]) -> dict[str, Any]:
         kind = "create_ref" if kind == "create" else kind  # older JSON used "create"
         kind = kind if kind in _EVENT_ICONS else "other"
         events.append({**event, "type": kind, "short": short, "icon": _EVENT_ICONS[kind]})
-    bio = (profile.get("bio") or "").strip()
+    bio = (profile_tr.get("bio") or profile.get("bio") or "").strip()
     return {
         "page": "home",
         "cards": cards,
         "groups": groups,
-        "counts": {"all": len(cards), "social": len(groups[0]["repos"]), "industry": len(groups[1]["repos"]),
-                   "other": len(groups[2]["repos"]),
+        "counts": {**by_key, "all": len(cards),
                    "stars": sum(c["stars"] for c in cards), "followers": user.get("followers") or 0},
+        "custom_categories": categories.custom(doc),
+        "followers_url": f"https://github.com/{settings.github_username}?tab=followers",
         "research": research_cards(),
         "research_by_name": {x["name"]: x for x in research_cards()},
         "profile": profile,
-        "headline": profile.get("headline", ""),
+        "headline": profile_tr.get("headline") or profile.get("headline", ""),
         "bio_paragraphs": [p.strip() for p in re.split(r"\n\s*\n", bio) if p.strip()],
         "age": compute_age(profile) if profile.get("show_age", True) else None,
         "skills": profile.get("skills") or [],
@@ -276,8 +330,8 @@ def home(doc: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def issues_view(doc: dict[str, Any], state: str, repo: str) -> dict[str, Any]:
-    visible = {c["name"].lower(): c for c in project_cards()}
+def issues_view(doc: dict[str, Any], state: str, repo: str, lang: str = "en") -> dict[str, Any]:
+    visible = {c["name"].lower(): c for c in cards_for(lang)}
     issues = [i for i in doc["github"].get("issues") or [] if i.get("repo", "").lower() in visible]
     counts = {"open": sum(i["state"] == "open" for i in issues),
               "closed": sum(i["state"] == "closed" for i in issues), "all": len(issues)}
@@ -309,7 +363,7 @@ def admin_repo_row(key: str, entry: dict[str, Any], doc: dict[str, Any]) -> dict
         "description": entry.get("description", ""), "language": entry.get("language", ""),
         "stars": entry.get("stars", 0), "fork": bool(entry.get("fork")), "archived": bool(entry.get("archived")),
         "gone": bool(entry.get("gone")), "hidden": name.lower() in hidden, "featured": name.lower() in featured,
-        "category": analysis.get("category", "industry"), "status": status,
+        "category": categories.resolve(doc, analysis.get("category", "industry")), "status": status,
         "provider": current.get("provider", ""), "model": current.get("model", ""),
         "confidence": current.get("confidence"), "locked": bool(current.get("locked")),
         "categorized_at": current.get("categorized_at", ""), "summary": analysis.get("summary", ""),
@@ -371,7 +425,7 @@ def admin_research(doc: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def admin_state() -> dict[str, Any]:
+def admin_state(client_ip: str = "") -> dict[str, Any]:
     doc = store.get()
     rows = sorted((admin_repo_row(k, e, doc) for k, e in doc["repos"].items()), key=lambda r: r["name"].lower())
     storage = store.describe()
@@ -409,4 +463,25 @@ def admin_state() -> dict[str, Any]:
         "counts": counts,
         "providers": [{"key": p.key, "label": p.label, "model": p.model, "url": p.base_url} for p in ai.providers()],
         "on_vercel": settings.on_vercel,
+        "categories": admin_categories(doc),
+        "occasions": occasions.admin_view(doc),
+        "translations": translate.progress(doc, visible_entries(doc)),
+        "security": lockout.admin_view(doc, client_ip),
+    }
+
+
+def admin_categories(doc: dict[str, Any]) -> dict[str, Any]:
+    labels = categories.meta(doc, translator("en"))
+    used: dict[str, int] = {}
+    for key, entry in doc["repos"].items():
+        if not entry.get("gone"):
+            group = categories.resolve(doc, _analysis(key, entry)[0].get("category", "industry"))
+            used[group] = used.get(group, 0) + 1
+    return {
+        "all": [{"key": k, "label": labels[k]["label"], "icon": labels[k]["icon"], "builtin": labels[k]["builtin"],
+                 "count": used.get(k, 0)} for k in categories.keys(doc)],
+        "custom": [{**c, "count": used.get(c["key"], 0)} for c in categories.custom(doc)],
+        "icons": list(categories.ICON_CHOICES),
+        "colors": list(categories.COLOR_CHOICES),
+        "max": categories.MAX_CUSTOM,
     }

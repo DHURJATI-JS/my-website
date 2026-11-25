@@ -13,6 +13,7 @@
       (8+ characters) are set in <code>.env</code> (or Vercel environment variables).</div>
     {% endif %}
     {% if error %}<div class="alert-err" role="alert">{{ error }}</div>{% endif %}
+    {% if not blocked %}
     <form method="post" action="/admin/login" autocomplete="on">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <div>
@@ -24,7 +25,9 @@
         <input class="field" id="p" name="password" type="password" autocomplete="current-password" required maxlength="256">
       </div>
       <button class="btn-glow" type="submit" data-mdb-ripple-init>{{ icon('lock') }}<span>Sign in</span></button>
+      <p class="login-note">{{ max_failures }} wrong passwords block this network until the site owner unblocks it.</p>
     </form>
+    {% endif %}
     <a class="link-arrow mt-4" href="{{ link('/') }}">{{ icon('home') }}<span>{{ t('back_home') }}</span></a>
   </div>
 </section>

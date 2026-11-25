@@ -2,15 +2,20 @@
 <article class="pcard reveal" data-name="{{ r.name }}" data-cat="{{ r.category }}" data-stars="{{ r.stars }}"
          data-updated="{{ r.updated_at }}" data-featured="{{ 1 if r.featured else 0 }}" data-slug="{{ r.slug }}">
   <span class="pcard-glow" aria-hidden="true"></span>
+  {% if r.banner %}
+  <button type="button" class="pcard-banner" data-open="{{ r.name }}" tabindex="-1" aria-hidden="true">
+    <img src="{{ r.banner }}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" width="640" height="320">
+  </button>
+  {% endif %}
   <div class="pcard-top">
-    <span class="cat-chip"><i class="dot dot-{{ r.category }}"></i>{{ t('cat_' ~ r.category) }}</span>
+    <span class="cat-chip"><i class="dot dot-{{ r.category }}"></i>{{ (cats[r.category] or cats.other).label }}</span>
     {% if r.research %}<span class="research-chip">{{ icon('check-circle') }}{{ t('research_chip') }}</span>{% endif %}
     {% if r.featured %}<span class="feat-chip">{{ icon('thumbtack') }}{{ t('featured') }}</span>{% endif %}
     <span class="ai-chip ai-{{ r.status }}"{% if r.model %} title="{{ r.model }}"{% endif %}>{{ icon('magic' if r.status == 'ai' else ('check' if r.status == 'manual' else 'clock')) }}{{ status_label }}</span>
   </div>
   <h3 class="pcard-title"><button type="button" class="pcard-open" data-open="{{ r.name }}">{{ r.title }}</button></h3>
   <p class="pcard-repo">{{ icon('github') }}<span>{{ r.name }}</span></p>
-  <p class="pcard-text">{{ r.summary or r.description or t('no_description') }}</p>
+  <p class="pcard-text"{% if r.translated %} lang="{{ lang }}"{% endif %}>{{ r.summary or r.description or t('no_description') }}</p>
   {% if r.tech %}
   <ul class="tech" aria-label="{{ t('tech_stack') }}">
     {% for x in r.tech[:4] %}<li>{{ x }}</li>{% endfor %}

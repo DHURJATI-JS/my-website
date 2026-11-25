@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 
 from . import ai, jobs, ratelimit as rl, views
 from .config import settings
+from .i18n import LANGS, resolve_lang
 from .ratelimit import limiter
 from .security import tokens_match
 from .store import store
@@ -18,14 +19,16 @@ _PUBLIC_CACHE = "public, max-age=120, s-maxage=300, stale-while-revalidate=600"
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
 @limiter.limit(rl.PAGE)
 def home(request: Request):
-    return render(request, "index.html", views.home(store.get()))
+    lang, _ = resolve_lang(request)
+    return render(request, "index.html", views.home(store.get(), lang))
 
 
 @router.get("/issues", response_class=HTMLResponse, include_in_schema=False)
 @limiter.limit(rl.PAGE)
 def issues(request: Request, state: str = "open", repo: str = ""):
     state = state if state in ("open", "closed", "all") else "open"
-    return render(request, "issues.html", views.issues_view(store.get(), state, repo[:100]))
+    lang, _ = resolve_lang(request)
+    return render(request, "issues.html", views.issues_view(store.get(), state, repo[:100], lang))
 
 
 @router.get("/disclaimer", response_class=HTMLResponse, include_in_schema=False)
@@ -36,15 +39,18 @@ def disclaimer(request: Request):
 
 @router.get("/api/projects")
 @limiter.limit(rl.API)
-def api_projects(request: Request):
-    data = {"synced_at": store.get().get("synced_at"), "projects": [views.public_card(c) for c in views.project_cards()]}
+def api_projects(request: Request, lang: str = "en"):
+    """All visible projects. ?lang=hi|mr|es|fr|de|ja|ru returns the AI text translated where available."""
+    lang = lang if lang in LANGS else "en"
+    data = {"synced_at": store.get().get("synced_at"), "lang": lang,
+            "projects": [views.public_card(c) for c in views.cards_for(lang)]}
     return JSONResponse(data, headers={"Cache-Control": _PUBLIC_CACHE})
 
 
 @router.get("/api/projects/{name}")
 @limiter.limit(rl.API)
-def api_project(request: Request, name: str):
-    detail = views.project_detail(name[:120])
+def api_project(request: Request, name: str, lang: str = "en"):
+    detail = views.project_detail(name[:120], lang if lang in LANGS else "en")
     if detail is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return JSONResponse(detail, headers={"Cache-Control": _PUBLIC_CACHE})

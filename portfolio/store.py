@@ -80,6 +80,13 @@ def empty_doc() -> dict[str, Any]:
             "issues": [],
         },
         "repos": {},
+        # AI translations of the profile text, per language (see portfolio/translate.py).
+        "profile_i18n": {},
+        # Festival themes: settings, your own occasions and the dates last checked with
+        # Google Calendar (see portfolio/occasions.py).
+        "occasions": {},
+        # Admin login lockout: wrong-password counts and blocked networks (see portfolio/lockout.py).
+        "security": {"failures": {}, "blocked": {}},
     }
 
 

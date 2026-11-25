@@ -5,7 +5,7 @@ An AI reads every repository's README, groups the project as **Social impact** o
 and writes a polished summary. Visitors open any project in an MDBootstrap modal (AI overview + the full README).
 You can also move a project to **Other** by hand, and show **research-grade projects** with their validators at the top.
 
-FastAPI · Jinja2 · MDBootstrap 9 (CDN) · Icons8 (3D icons + Line Awesome) · 7 languages · dark/light theme
+FastAPI · Jinja2 · MDBootstrap 9 (CDN) · Icons8 (3D icons + Line Awesome) · 8 languages · dark/light theme
 
 ---
 
@@ -52,7 +52,11 @@ tech stack, audience). Once saved, a repo's group is **permanent**.
 | **1 · Sync GitHub details** | Refresh repo details, READMEs, issues and activity. No AI, nothing re-grouped. |
 | **2 · Categorise NEW repos only** *(recommended)* | Sync, then the AI reads only repos **not yet in the JSON**. Old groups stay. |
 | **3 · Re-verify & re-categorise ALL** | Sync, then the AI re-reads every README (optionally overriding your manual choices). |
-| Per repo | Change the group (locks it) — **Social impact**, **Industry & startup** or **Other** (Other is only ever chosen by you, never by the AI) — **Featured**, **Hidden**, re-run AI, or “forget” the result (→ new again). |
+| Per repo | Change the group (locks it) — **Social impact**, **Industry & startup**, **Other** or one of your own categories (Other and your own are only ever chosen by you, never by the AI) — **Featured**, **Hidden**, re-run AI, or “forget” the result (→ new again). |
+| Categories | Add your own groups with an icon and a colour (a ready-made **Games** group is included), reorder, rename or delete them (their projects move to Other). |
+| Translations | The AI translates each project's title, summary and key points (and your headline/biography) into every site language, once, and saves it. New or changed projects are translated by the daily sync; **Translate missing now** does it on demand. |
+| Festivals & occasions | Automatic festival greetings with effects, your own images/greetings per festival, your own occasions, a preview, and **Refresh dates · next 5 years**. See below. |
+| Security | Networks blocked after 3 wrong passwords, with **Unblock**. |
 | Research-grade section | An ON/OFF switch (**OFF** by default) plus one card per research project: pick a public repo, add its validators (type, name, organisation, optional proof link), and how, where and when it was used. See below. |
 | Profile | Name, headline, biography, age or birth date (age auto-updates), location, education, skills, links… |
 | Data | Download the JSON. |
@@ -68,6 +72,20 @@ tech stack, audience). Once saved, a repo's group is **permanent**.
   deleted or is hidden, its research card disappears from the site automatically (it stays in `/admin`).
 * Data lives in `data/portfolio.json` under `research` (same single source of truth). The profile README
   (`DHURJATI-JS/DHURJATI-JS`) reads `/api/research` and shows the same projects at its top.
+
+### Festivals & occasions
+* A greeting **slides down** from the top with a festive effect — snow, glowing diyas, fireworks, Holi colour
+  bursts, kites, lanterns, petals, stars & moon, bats — plus festive colours or **your own background image**.
+  Visitors can close it (remembered for that festival); “reduce motion” gets a still version.
+* **Dates** come from **Google Calendar's public holiday calendars**, checked once a day by the cron job and on
+  demand with **Refresh dates · next 5 years** (stores this year + 5). If Google can't be reached, the last good
+  copy is kept; before the first check, built-in dates are used.
+* **Whose festivals:** the visitor's site language picks the country — English, Hindi, Marathi → India ·
+  Spanish → Spain & Mexico · French → France · German → Germany · Japanese → Japan · Russian → Russia. If that
+  country has nothing on, or its calendar failed to load, **India** is used.
+* In `/admin` → *Festivals & occasions*: automatic / always show one (until a date) / off; per festival: on/off,
+  your greeting, your image (https link), the effect; **your own occasions** (birthday, launch day…; one-off or
+  every year) for everyone; and **Preview on site** (`/?occasion=<key>`, only works while you are signed in).
 
 ### Automation for new repositories
 * **Self-hosted / local:** a background loop syncs GitHub and categorises *new* repos every
@@ -124,6 +142,12 @@ Start Docker Desktop first.
 * **iframes & CORS:** public pages may be embedded (`FRAME_ANCESTORS`, default `*`) and the public JSON API
   allows `CORS_ORIGINS` (default `*`, GET only, no credentials). `/admin` is never frameable.
 * **Rate limiting** on every route with slowapi's `@limiter.limit(...)` (login: 5/minute, 30/hour).
+* **Login lockout:** 3 wrong admin passwords from one network (IPv4 address or IPv6 /64) block it — every GET and
+  POST from it gets *403 Access blocked* before any route runs — until you unblock it in `/admin` → *Security*.
+  A signed-in admin session always passes, so you can't lock yourself out of the unblock button. Locked out
+  anyway? Sign in from another network, or run `python scripts/unblock_ip.py --all`. Counts and blocks are stored
+  in the JSON (`security`), so they hold across every Vercel instance. Note: mobile networks often share one
+  address between many people, so a block can affect others on that network until you unblock it.
 * **Admin:** credentials from env, constant-time checks, optional PBKDF2 hash, HMAC-signed HttpOnly
   SameSite=Strict session cookie (changing the password logs everyone out), CSRF tokens + Origin check.
 * **README/issue HTML** is sanitised with nh3 (scripts, event handlers, styles, iframes and `javascript:`
@@ -134,9 +158,12 @@ Start Docker Desktop first.
   (then the Docker failsafe) via `/api/ai-status`, caches the answer for 45 s and never exposes internal
   IPs/URLs. The browser refreshes it every minute while the tab is visible.
 * **Login** button — becomes **Dashboard** while you are signed in.
+* **Language failsafe** — in any language other than English an always-visible **EN** button switches back to
+  English, and the language menu shows every language's English name too.
 
 ## Public JSON API
-`/api/projects` · `/api/projects/{name}` (incl. README HTML) · `/api/research` (research-grade projects; empty while
+`/api/projects` · `/api/projects/{name}` (incl. README HTML; both take `?lang=hi|mr|es|fr|de|ja|ru` for the
+AI-translated text) · `/api/research` (research-grade projects; empty while
 switched off) · `/api/profile` · `/api/profile-readme` · `/api/ai-status` · `/healthz`
 
 ## Project layout
@@ -146,7 +173,7 @@ portfolio/              app: config, store (JSON), github sync, ai, security, i1
 portfolio/templates/    Jinja2 pages (home, issues, disclaimer, admin)
 public/static/          app.css, app.js, admin.js, icons.svg (Line Awesome by Icons8), favicon
 data/portfolio.json     THE data file (commit it)
-scripts/                sync.py (CLI), build_icons.py, hash_password.py, start-fallback-ai.ps1
+scripts/                sync.py (CLI), unblock_ip.py, build_icons.py, hash_password.py, start-fallback-ai.ps1
 ```
 
 ## Auto-update on Vercel with a free Cloudflare tunnel
@@ -173,7 +200,7 @@ PC and the gateway are on; otherwise new repos show a keyword preview and get ca
 Set a real `AI_PRIMARY_KEY` on your gateway — the tunnel URL is public.
 
 ## Customising
-* **Languages:** English, हिन्दी, मराठी, Español, Français, Deutsch, 日本語 — edit/add in `portfolio/i18n.py`.
+* **Languages:** English, हिन्दी, मराठी, Español, Français, Deutsch, 日本語, Русский — edit/add in `portfolio/i18n.py`.
 * **Icons:** add a Line Awesome name to `scripts/build_icons.py` and re-run it; 3D icons come from
   `img.icons8.com/3d-fluency`. Icons8 attribution is in the footer — keep it (free-licence requirement).
 * **Look & feel:** colour tokens at the top of `public/static/app.css` (dark and light themes).

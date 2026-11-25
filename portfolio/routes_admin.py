@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
-from . import ai, jobs, ratelimit as rl, research, security, views
+from . import ai, categories, jobs, lockout, occasions, ratelimit as rl, research, security, views
 from .config import settings
 from .github import GitHubError, safe_url
 from .ratelimit import limiter
@@ -46,10 +46,15 @@ def _cookie_kwargs(request: Request, path: str = "/admin") -> dict:
     return {"httponly": True, "samesite": "strict", "secure": security.request_is_https(request), "path": path}
 
 
-def _login_page(request: Request, error: str = "", status: int = 200) -> Response:
+BLOCKED_MESSAGE = ("This network has been blocked after 3 wrong passwords. "
+                   "Only the site owner can unblock it.")
+
+
+def _login_page(request: Request, error: str = "", status: int = 200, blocked: bool = False) -> Response:
     token = security.new_token()
     response = render(request, "admin/login.html", {
         "page": "admin", "csrf": token, "error": error, "configured": security.admin_configured(),
+        "blocked": blocked, "max_failures": lockout.MAX_FAILURES,
     }, status=status)
     response.set_cookie(security.LOGIN_CSRF_COOKIE, token, max_age=1800, **_cookie_kwargs(request))
     return response
@@ -66,6 +71,8 @@ def admin_root(request: Request):
 def login_page(request: Request):
     if current_session(request):
         return RedirectResponse("/admin/dashboard", status_code=303)
+    if lockout.is_blocked(rl.client_ip(request)):
+        return _login_page(request, BLOCKED_MESSAGE, 403, blocked=True)
     return _login_page(request)
 
 
@@ -76,6 +83,9 @@ async def login_submit(request: Request):
     if len(body) > 4096:
         raise HTTPException(status_code=413, detail="Request too large")
     form = {key: values[0] for key, values in parse_qs(body.decode("utf-8", "replace")).items()}
+    ip = rl.client_ip(request)
+    if lockout.is_blocked(ip):  # checked before the password is even looked at
+        return _login_page(request, BLOCKED_MESSAGE, 403, blocked=True)
     if not security.tokens_match(form.get("csrf"), request.cookies.get(security.LOGIN_CSRF_COOKIE)) \
             or not security.same_origin(request):
         return _login_page(request, "The login form expired. Please try again.", 400)
@@ -84,7 +94,19 @@ async def login_submit(request: Request):
                                     "(8+ characters) in .env, then restart.", 403)
     username = form.get("username", "")[:120]
     if not security.verify_credentials(username, form.get("password", "")[:256]):
-        return _login_page(request, "Wrong username or password.", 401)
+        try:
+            result = lockout.record_failure(ip, request.headers.get("user-agent", ""))
+        except Exception:  # noqa: BLE001 - storage down: still refuse the login
+            result = {"blocked": False, "left": None}
+        if result["blocked"]:
+            return _login_page(request, BLOCKED_MESSAGE, 403, blocked=True)
+        left = result.get("left")
+        warning = f" {left} attempt{'s' if left != 1 else ''} left before this network is blocked." if left else ""
+        return _login_page(request, "Wrong username or password." + warning, 401)
+    try:
+        lockout.clear_failures(ip)
+    except Exception:  # noqa: BLE001
+        pass
     response = RedirectResponse("/admin/dashboard", status_code=303)
     response.delete_cookie(security.SESSION_COOKIE, path="/admin")  # older builds scoped it to /admin
     # Path "/" so the public navbar can show "Dashboard" instead of "Login" (still HttpOnly + SameSite=Strict).
@@ -107,7 +129,8 @@ def logout(request: Request, session: dict = Depends(require_csrf)):
 @limiter.limit(rl.ADMIN)
 def dashboard(request: Request, session: dict = Depends(require_admin)):
     return render(request, "admin/dashboard.html", {
-        "page": "admin", "csrf": session["csrf"], "state": views.admin_state(), "admin_user": session["u"],
+        "page": "admin", "csrf": session["csrf"], "state": views.admin_state(rl.client_ip(request)),
+        "admin_user": session["u"],
     })
 
 
@@ -117,8 +140,68 @@ class NameBody(BaseModel):
 
 
 class OverrideBody(NameBody):
-    category: Literal["social", "industry", "other"]  # "other" can only be chosen by hand
+    # social / industry / other or one of your custom categories (checked in the route)
+    category: str = Field(min_length=1, max_length=30, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     locked: bool = True
+
+
+class CategoryBody(BaseModel):
+    key: str = Field("", max_length=30, pattern=r"^([a-z0-9]+(?:-[a-z0-9]+)*)?$")  # empty = new
+    name: str = Field(min_length=1, max_length=40)
+    icon: str = Field(min_length=1, max_length=40)
+    color: str = Field(min_length=7, max_length=7, pattern=r"^#[0-9a-fA-F]{6}$")
+    description: str = Field("", max_length=160)
+
+
+class CategoryKeyBody(BaseModel):
+    key: str = Field(min_length=1, max_length=30, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    step: int = Field(0, ge=-1, le=1)
+
+
+class TranslateBody(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    lang: str = Field(min_length=2, max_length=2, pattern=r"^[a-z]{2}$")
+
+
+class UnblockBody(BaseModel):
+    ip: str = Field(min_length=1, max_length=64)  # "*" = everyone
+
+
+_KEY = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
+_DATE_OR_EMPTY = r"^(\d{4}-\d{2}-\d{2})?$"
+
+
+class OccasionSettingsBody(BaseModel):
+    mode: Literal["auto", "forced", "off"]
+    forced: str = Field("", max_length=40)
+    until: str = Field("", max_length=10, pattern=_DATE_OR_EMPTY)
+    home_fallback: bool = True
+
+
+class FestivalBody(BaseModel):
+    key: str = Field(min_length=1, max_length=40, pattern=_KEY)
+    enabled: bool = True
+    greeting: str = Field("", max_length=160)
+    image: str = Field("", max_length=600)
+    effect: str = Field("", max_length=20)
+
+
+class CustomOccasionBody(BaseModel):
+    key: str = Field("", max_length=40, pattern=r"^(my-[a-f0-9]{8})?$")  # empty = new
+    name: str = Field(min_length=1, max_length=60)
+    emoji: str = Field("🎉", max_length=8)
+    start: str = Field(min_length=10, max_length=10, pattern=_DATE_OR_EMPTY)
+    end: str = Field("", max_length=10, pattern=_DATE_OR_EMPTY)
+    yearly: bool = False
+    greeting: str = Field("", max_length=160)
+    image: str = Field("", max_length=600)
+    effect: str = Field("confetti", max_length=20)
+    color: str = Field("#f59e0b", max_length=7, pattern=r"^#[0-9a-fA-F]{6}$")
+    enabled: bool = True
+
+
+class OccasionKeyBody(BaseModel):
+    key: str = Field(min_length=1, max_length=40, pattern=r"^my-[a-f0-9]{8}$")
 
 
 class VisibilityBody(NameBody):
@@ -194,7 +277,7 @@ def _bad_gateway(exc: Exception) -> HTTPException:
 @router.get("/api/state")
 @limiter.limit(rl.ADMIN)
 def api_state(request: Request, session: dict = Depends(require_admin)):
-    return views.admin_state()
+    return views.admin_state(rl.client_ip(request))
 
 
 @router.post("/api/sync")
@@ -236,6 +319,8 @@ def api_categorize(request: Request, body: NameBody, session: dict = Depends(req
 @limiter.limit(rl.ADMIN)
 def api_override(request: Request, body: OverrideBody, session: dict = Depends(require_csrf)):
     def apply(doc: dict) -> None:
+        if body.category not in categories.keys(doc):
+            raise ValueError("Unknown category")
         _, entry = jobs.find_repo(doc, body.name)
         base = dict(entry.get("ai") or ai.heuristic(entry))
         base.update(category=body.category, manual=True, locked=body.locked, categorized_at=now_iso())
@@ -245,6 +330,8 @@ def api_override(request: Request, body: OverrideBody, session: dict = Depends(r
         store.mutate(apply)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown repository") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"repo": views.admin_repo(body.name)}
 
 
@@ -371,6 +458,114 @@ def api_research_delete(request: Request, body: ResearchIdBody, session: dict = 
 
     store.mutate(apply)
     return {"research": views.admin_research(store.get())}
+
+
+
+# --------------------------------------------------------------- categories --
+def _mutate_or_400(fn):
+    try:
+        return store.mutate(fn)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"Not found: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/api/categories/save")
+@limiter.limit(rl.ADMIN)
+def api_category_save(request: Request, body: CategoryBody, session: dict = Depends(require_csrf)):
+    key = _mutate_or_400(lambda doc: categories.upsert(doc, key=body.key, name=body.name, icon=body.icon,
+                                                        color=body.color, description=body.description))
+    return {"key": key, "state": views.admin_state()}
+
+
+@router.post("/api/categories/delete")
+@limiter.limit(rl.ADMIN)
+def api_category_delete(request: Request, body: CategoryKeyBody, session: dict = Depends(require_csrf)):
+    moved = _mutate_or_400(lambda doc: categories.delete(doc, body.key))
+    return {"moved": moved, "state": views.admin_state()}
+
+
+@router.post("/api/categories/move")
+@limiter.limit(rl.ADMIN)
+def api_category_move(request: Request, body: CategoryKeyBody, session: dict = Depends(require_csrf)):
+    _mutate_or_400(lambda doc: categories.move(doc, body.key, body.step))
+    return {"state": views.admin_state()}
+
+
+# ------------------------------------------------------------- translations --
+@router.get("/api/translate/plan")
+@limiter.limit(rl.ADMIN)
+def api_translate_plan(request: Request, session: dict = Depends(require_admin)):
+    return {"jobs": jobs.translation_plan()}
+
+
+@router.post("/api/translate")
+@limiter.limit(rl.ADMIN)
+def api_translate(request: Request, body: TranslateBody, session: dict = Depends(require_csrf)):
+    try:
+        result = jobs.translate_one(body.name, body.lang)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown repository") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ai.AIUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"AI unavailable - {exc}") from exc
+    except StoreError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not save the JSON: {exc}") from exc
+    return {"ok": not result.get("stale"), "stale": bool(result.get("stale"))}
+
+
+# ---------------------------------------------------------------- festivals --
+@router.post("/api/occasions/settings")
+@limiter.limit(rl.ADMIN)
+def api_occasion_settings(request: Request, body: OccasionSettingsBody, session: dict = Depends(require_csrf)):
+    _mutate_or_400(lambda doc: occasions.save_settings(doc, mode=body.mode, forced=body.forced, until=body.until,
+                                                       home_fallback=body.home_fallback))
+    return {"state": views.admin_state()}
+
+
+@router.post("/api/occasions/festival")
+@limiter.limit(rl.ADMIN)
+def api_occasion_festival(request: Request, body: FestivalBody, session: dict = Depends(require_csrf)):
+    _mutate_or_400(lambda doc: occasions.save_festival(doc, key=body.key, enabled=body.enabled,
+                                                       greeting=body.greeting, image=body.image, effect=body.effect))
+    return {"state": views.admin_state()}
+
+
+@router.post("/api/occasions/custom")
+@limiter.limit(rl.ADMIN)
+def api_occasion_custom(request: Request, body: CustomOccasionBody, session: dict = Depends(require_csrf)):
+    key = _mutate_or_400(lambda doc: occasions.save_custom(
+        doc, key=body.key, name=body.name, emoji=body.emoji, start=body.start, end=body.end, yearly=body.yearly,
+        greeting=body.greeting, image=body.image, effect=body.effect, color=body.color, enabled=body.enabled))
+    return {"key": key, "state": views.admin_state()}
+
+
+@router.post("/api/occasions/custom/delete")
+@limiter.limit(rl.ADMIN)
+def api_occasion_custom_delete(request: Request, body: OccasionKeyBody, session: dict = Depends(require_csrf)):
+    _mutate_or_400(lambda doc: occasions.delete_custom(doc, body.key))
+    return {"state": views.admin_state()}
+
+
+@router.post("/api/occasions/refresh")
+@limiter.limit("10/minute")
+def api_occasion_refresh(request: Request, session: dict = Depends(require_csrf)):
+    """Check Google Calendar now and load the next 5 years of festival dates."""
+    try:
+        report = jobs.sync_occasions()
+    except StoreError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not save the JSON: {exc}") from exc
+    return {"report": report, "state": views.admin_state()}
+
+
+# ----------------------------------------------------------------- security --
+@router.post("/api/security/unblock")
+@limiter.limit(rl.ADMIN)
+def api_unblock(request: Request, body: UnblockBody, session: dict = Depends(require_csrf)):
+    removed = lockout.unblock("*" if body.ip == "*" else body.ip.strip())
+    return {"removed": removed, "state": views.admin_state(rl.client_ip(request))}
 
 
 @router.get("/api/ai-status")

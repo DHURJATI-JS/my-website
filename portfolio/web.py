@@ -10,9 +10,9 @@ from markupsafe import Markup, escape
 from starlette.requests import Request
 from starlette.responses import Response
 
-from . import views
+from . import categories, occasions, views
 from .config import TEMPLATES_DIR, settings
-from .i18n import LANGS, js_strings, resolve_lang, translator
+from .i18n import LANG_EN, LANGS, js_strings, resolve_lang, translator
 from .security import SESSION_COOKIE, read_session, request_is_https
 from .store import store
 
@@ -67,15 +67,31 @@ def base_context(request: Request, lang: str, explicit: bool) -> dict[str, Any]:
         return "?" + urlencode(params)
 
     profile = doc["profile"]
+    t = translator(lang)
+    is_admin = read_session(request.cookies.get(SESSION_COOKIE)) is not None
+    # Festival theme. Admins can preview any festival with ?occasion=<key> (visitors cannot).
+    preview = request.query_params.get("occasion", "")[:40] if is_admin else ""
+    if preview and preview != "off" and preview not in occasions.FESTIVALS \
+            and preview not in {c["key"] for c in occasions.custom_of(doc)}:
+        preview = ""
+    try:
+        occasion = None if preview == "off" else occasions.for_visitor(doc, lang, preview)
+    except Exception:  # noqa: BLE001 - a festival must never break a page
+        occasion = None
     return {
         "nav_stats": bool(profile.get("show_stats", True) and doc["github"].get("stats_images")),
         "nav_activity": bool(profile.get("show_activity", True)),
         "nav_research": bool(views.research_cards()),  # only while switched on AND something is shown
-        "is_admin": read_session(request.cookies.get(SESSION_COOKIE)) is not None,
+        "is_admin": is_admin,
         "nonce": getattr(request.state, "csp_nonce", ""),
         "lang": lang,
         "langs": LANGS,
-        "t": translator(lang),
+        "lang_en": LANG_EN,
+        "t": t,
+        "cats": categories.meta(doc, t),
+        "occasion": occasion,
+        "occasion_preview": bool(preview),
+        "lang_explicit": explicit,
         "link": link,
         "lang_url": lang_url,
         "me": views.identity(doc),

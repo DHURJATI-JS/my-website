@@ -73,7 +73,14 @@
 
   /* ------------------------------------------------------- repo table */
   const rows = $('#repoRows');
-  const LABEL = { social: 'Social impact', industry: 'Industry & startup', other: 'Other' }; // AI never picks "other"
+  // Group labels: built-in + your own categories (the AI never picks "other" or a custom one).
+  let LABEL = {};
+  function refreshLabels() {
+    LABEL = {};
+    ((state.categories && state.categories.all) || [{ key: 'social', label: 'Social impact' }, { key: 'industry', label: 'Industry & startup' }, { key: 'other', label: 'Other' }])
+      .forEach((c) => { LABEL[c.key] = c.label; });
+  }
+  refreshLabels();
   const SOURCE = { ai: 'AI', manual: 'Manual', pending: 'Pending' };
 
   function toggle(repo, field) {
@@ -141,6 +148,7 @@
       h('span', { text: Object.keys(LABEL).map((key) => `${live.filter((r) => r.category === key).length} ${key}`).join(' · ') }));
   }
   function renderRows() {
+    refreshLabels();
     rows.replaceChildren(...state.repos.map(rowFor));
     if (!state.repos.length) rows.append(h('tr', {}, h('td', { colspan: '6', text: 'No repositories yet — click “Sync now”.' })));
     renderCounts();
@@ -185,6 +193,7 @@
     renderRows();
     renderWarnings();
     renderResearch(true);
+    renderTranslations(); renderOccasions(); renderCategories(); renderSecurity();
   }
   async function categorize(mode) {
     await sync(); // so brand-new repos are known before planning
@@ -453,4 +462,330 @@
   resetResearchForm();
   renderResearch();
   checkAI();
+
+  /* ================================================== shared helpers */
+  const I8 = (name) => `https://img.icons8.com/3d-fluency/94/${encodeURIComponent(name)}.png`;
+  function setState(next) {
+    if (!next) return;
+    state = next;
+    renderRows();
+    renderTranslations();
+    renderOccasions();
+    renderCategories();
+    renderSecurity();
+  }
+  function msg(el, text, kind = 'ok') { el.textContent = text; el.className = 'form-msg ' + kind; }
+  const when = (iso) => (iso ? new Date(iso).toLocaleString() : 'never');
+
+  /* ===================================================== translations */
+  function renderTranslations() {
+    const box = $('#translateProgress');
+    const tr = state.translations;
+    if (!box || !tr) return;
+    box.replaceChildren(...Object.entries(tr.languages).map(([lang, v]) => {
+      const pct = v.total ? Math.round((v.done / v.total) * 100) : 100;
+      return h('span', { class: 'tr-lang' + (pct === 100 ? ' is-done' : ''), title: `${v.done} of ${v.total} projects` },
+        h('b', { text: tr.names[lang] || lang }), ` ${pct}%`);
+    }));
+  }
+  const translateBtn = $('#translateRun');
+  if (translateBtn) translateBtn.addEventListener('click', async () => {
+    if (busy) return toast('Another job is running — wait for it to finish.', 'err');
+    busy = true; translateBtn.disabled = true;
+    const wrap = $('#translateWrap'); const fillT = $('#translateFill'); const text = $('#translateText');
+    wrap.hidden = false;
+    try {
+      const plan = await api('/admin/api/translate/plan');
+      const jobs = plan.jobs;
+      if (!jobs.length) { fillT.style.width = '100%'; text.textContent = 'Everything is already translated ✓'; return; }
+      let done = 0; let failed = 0;
+      for (const job of jobs) {
+        text.textContent = `Translating ${job.name === '__profile__' ? 'your profile' : job.name} → ${job.lang} (${done + 1}/${jobs.length})…`;
+        try {
+          await api('/admin/api/translate', { method: 'POST', body: job });
+        } catch (e) {
+          failed += 1;
+          if (/AI unavailable/i.test(e.message)) { toast('The AI is offline — try again when it is online.', 'err'); break; }
+          toast(`${job.name} (${job.lang}): ${e.message}`, 'err');
+        }
+        done += 1;
+        fillT.style.width = Math.round((done / jobs.length) * 100) + '%';
+      }
+      text.textContent = `Done: ${done - failed} translated${failed ? `, ${failed} failed` : ''}.`;
+      setState(await api('/admin/api/state'));
+    } catch (e) { toast(e.message, 'err'); }
+    finally { busy = false; translateBtn.disabled = false; }
+  });
+
+  /* ======================================================== festivals */
+  const occ = () => state.occasions || { festivals: [], custom: [], effects: [], settings: {}, calendar: {} };
+  function effectOptions(select, chosen, withDefault) {
+    const opts = (withDefault ? [h('option', { value: '', text: `Default (${withDefault})` })] : [])
+      .concat(occ().effects.map((e) => h('option', { value: e.key, text: e.label, selected: e.key === chosen })));
+    select.replaceChildren(...opts);
+    if (!chosen) select.value = '';
+  }
+  function renderOccasions() {
+    const card = $('#occasionCard');
+    if (!card || !state.occasions) return;
+    const o = occ();
+    const cal = o.calendar;
+    const feeds = Object.entries(cal.feeds || {}).map(([cc, f]) => h('span', {
+      class: 'occ-feed ' + (f.ok ? 'is-ok' : f.checked_at ? 'is-bad' : ''),
+      title: f.ok ? `${f.count} festival dates · calendar runs to ${f.last_date || '?'}` : (f.error || 'not checked yet'),
+    }, f.name));
+    $('#occStatus').replaceChildren(...[
+      h('p', {}, h('b', { text: 'Google Calendar: ' }),
+        cal.checked_at ? `checked ${when(cal.checked_at)} · ${cal.ok}/${cal.total} calendars loaded` : 'not checked yet — press “Refresh dates”',
+        cal.known_until ? ` · dates known until ${cal.known_until}` : ''),
+      h('div', { class: 'occ-feeds' }, feeds),
+      (cal.changes || []).length ? h('details', {}, h('summary', { text: `Date changes found (${cal.changes.length})` }),
+        h('ul', {}, cal.changes.map((c) => h('li', { text: c })))) : null].filter(Boolean));
+    // mode
+    const form = $('#occSettings');
+    const st = o.settings;
+    $$('input[name="mode"]', form).forEach((r) => { r.checked = r.value === st.mode; });
+    const forced = $('#occForced');
+    forced.replaceChildren(...[
+      h('optgroup', { label: 'Festivals' }, o.festivals.map((f) => h('option', { value: f.key, text: `${f.emoji} ${f.name}`, selected: st.forced === f.key }))),
+      o.custom.length ? h('optgroup', { label: 'Your occasions' }, o.custom.map((c) => h('option', { value: c.key, text: `${c.emoji} ${c.name}`, selected: st.forced === c.key }))) : null].filter(Boolean));
+    $('#occUntil').value = st.until || '';
+    $('#occHome').checked = !!st.home_fallback;
+    $('#occForcedRow').hidden = st.mode !== 'forced';
+    // now showing per language
+    const LANGS = { en: 'English', hi: 'Hindi', mr: 'Marathi', es: 'Spanish', fr: 'French', de: 'German', ja: 'Japanese', ru: 'Russian' };
+    $('#occNow').replaceChildren(...Object.keys(LANGS).filter((l) => l in (o.now_showing || {})).map((lang) => [lang, o.now_showing[lang]]).map(([lang, name]) => h('li', {},
+      h('b', { text: LANGS[lang] || lang }), h('small', { text: ` (${(o.regions[lang] || []).join(', ')})` }), ' → ',
+      h('span', { class: name ? '' : 'muted', text: name || 'nothing today' }))));
+    // festival picker
+    const pickSel = $('#occPick');
+    const current = pickSel.value;
+    const groups = {};
+    o.festivals.forEach((f) => { const g = (f.countries || []).length > 3 ? 'Everywhere' : (f.countries || []).join(', ').toUpperCase(); (groups[g] = groups[g] || []).push(f); });
+    pickSel.replaceChildren(...Object.entries(groups).map(([g, list]) => h('optgroup', { label: g },
+      list.map((f) => h('option', { value: f.key, text: `${f.emoji} ${f.name}${f.enabled ? '' : ' (off)'}${f.image || f.greeting || f.effect ? ' ✎' : ''}` })))));
+    if (current) pickSel.value = current;
+    fillFestival();
+    effectOptions($('#oc-effect'), $('#oc-effect').value || 'confetti');
+    renderCustom();
+  }
+  function thumb(box, url) {
+    box.replaceChildren();
+    if (/^https:\/\//i.test(url || '')) box.append(h('img', { src: url, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }));
+    else box.append(h('span', { text: 'Festive colours (no image)' }));
+  }
+  function fillFestival() {
+    const key = $('#occPick').value;
+    const f = occ().festivals.find((x) => x.key === key);
+    if (!f) return;
+    $('#occEnabled').checked = f.enabled !== false;
+    $('#occGreeting').value = f.greeting || '';
+    $('#occGreeting').placeholder = f.default_greeting;
+    $('#occImage').value = f.image || '';
+    effectOptions($('#occEffect'), f.effect, (occ().effects.find((e) => e.key === f.default_effect) || {}).label || f.default_effect);
+    thumb($('#occThumb'), f.image);
+    $('#occPreview').href = `/?occasion=${encodeURIComponent(f.key)}&lang=${encodeURIComponent(f.preview_lang || 'en')}`;
+  }
+  if ($('#occasionCard')) {
+    $('#occPick').addEventListener('change', fillFestival);
+    $('#occImage').addEventListener('input', () => thumb($('#occThumb'), $('#occImage').value.trim()));
+    $$('input[name="mode"]', $('#occSettings')).forEach((r) => r.addEventListener('change', () => { $('#occForcedRow').hidden = r.value !== 'forced' || !r.checked; }));
+    $('#occSettings').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const mode = ($('input[name="mode"]:checked', e.target) || {}).value || 'auto';
+      try {
+        const data = await api('/admin/api/occasions/settings', { method: 'POST', body: { mode, forced: mode === 'forced' ? $('#occForced').value : '', until: mode === 'forced' ? $('#occUntil').value : '', home_fallback: $('#occHome').checked } });
+        setState(data.state); msg($('#occSettingsMsg'), 'Saved ✓');
+      } catch (err) { msg($('#occSettingsMsg'), err.message, 'err'); }
+    });
+    async function saveFestival(body) {
+      try {
+        const data = await api('/admin/api/occasions/festival', { method: 'POST', body });
+        setState(data.state); $('#occPick').value = body.key; fillFestival(); msg($('#occFestivalMsg'), 'Saved ✓');
+      } catch (err) { msg($('#occFestivalMsg'), err.message, 'err'); }
+    }
+    $('#occFestival').addEventListener('submit', (e) => {
+      e.preventDefault();
+      saveFestival({ key: $('#occPick').value, enabled: $('#occEnabled').checked, greeting: $('#occGreeting').value.trim(), image: $('#occImage').value.trim(), effect: $('#occEffect').value });
+    });
+    $('#occReset').addEventListener('click', () => saveFestival({ key: $('#occPick').value, enabled: true, greeting: '', image: '', effect: '' }));
+    $('#occRefresh').addEventListener('click', async (e) => {
+      const btn = e.currentTarget; btn.disabled = true;
+      try {
+        const data = await api('/admin/api/occasions/refresh', { method: 'POST' });
+        setState(data.state);
+        const r = data.report;
+        toast(r.ok ? `Loaded ${r.ok}/${r.total} calendars from Google — dates for the next 5 years ✓` : 'Google Calendar could not be reached — India is used meanwhile.', r.ok ? 'ok' : 'err');
+      } catch (err) { toast(err.message, 'err'); }
+      finally { btn.disabled = false; }
+    });
+    // your own occasions
+    let editingOcc = '';
+    function resetCustom() {
+      editingOcc = '';
+      $('#occCustom').reset();
+      $('#oc-emoji').value = '🎉'; $('#oc-color').value = '#f59e0b'; $('#oc-enabled').checked = true;
+      effectOptions($('#oc-effect'), 'confetti');
+      $('#occCustomTitle').textContent = 'Add an occasion';
+      $('#occCustomCancel').hidden = true;
+    }
+    window.__renderCustom = function renderCustomList() {
+      const list = $('#occCustomList');
+      const items = occ().custom;
+      list.replaceChildren(...(items.length ? items.map((c) => {
+        const edit = h('button', { class: 'icon-btn', type: 'button', title: 'Edit', 'aria-label': 'Edit ' + c.name }, icon('code'));
+        edit.addEventListener('click', () => {
+          editingOcc = c.key;
+          $('#oc-name').value = c.name; $('#oc-emoji').value = c.emoji; $('#oc-greeting').value = c.greeting || '';
+          $('#oc-start').value = c.start; $('#oc-end').value = c.end === c.start ? '' : c.end; $('#oc-yearly').checked = !!c.yearly;
+          $('#oc-enabled').checked = c.enabled !== false; $('#oc-image').value = c.image || ''; $('#oc-color').value = c.color || '#f59e0b';
+          effectOptions($('#oc-effect'), c.effect);
+          $('#occCustomTitle').textContent = 'Edit “' + c.name + '”'; $('#occCustomCancel').hidden = false;
+          $('#occCustom').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+        const del = h('button', { class: 'icon-btn', type: 'button', title: 'Delete', 'aria-label': 'Delete ' + c.name }, icon('times'));
+        del.addEventListener('click', async () => {
+          if (!confirm(`Delete “${c.name}”?`)) return;
+          try { const data = await api('/admin/api/occasions/custom/delete', { method: 'POST', body: { key: c.key } }); setState(data.state); toast('Deleted'); }
+          catch (err) { toast(err.message, 'err'); }
+        });
+        const preview = h('a', { class: 'icon-btn', href: `/?occasion=${encodeURIComponent(c.key)}`, target: '_blank', rel: 'noopener', title: 'Preview on site', 'aria-label': 'Preview ' + c.name }, icon('external-link'));
+        const dates = c.start === c.end ? c.start : `${c.start} → ${c.end}`;
+        return h('div', { class: 'ra-item' + (c.enabled === false ? ' is-off' : '') },
+          h('div', {}, h('b', { text: `${c.emoji} ${c.name}` }), h('small', { text: ` · ${dates}${c.yearly ? ' · every year' : ''}${c.enabled === false ? ' · off' : ''}` })),
+          h('div', { class: 'row-actions' }, preview, edit, del));
+      }) : [h('p', { class: 'hint', text: 'None yet — add your birthday, a launch day or anything you like.' })]));
+    };
+    $('#occCustomCancel').addEventListener('click', resetCustom);
+    $('#occCustom').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = {
+        key: editingOcc, name: $('#oc-name').value.trim(), emoji: $('#oc-emoji').value.trim() || '🎉',
+        start: $('#oc-start').value, end: $('#oc-end').value, yearly: $('#oc-yearly').checked,
+        greeting: $('#oc-greeting').value.trim(), image: $('#oc-image').value.trim(), effect: $('#oc-effect').value,
+        color: $('#oc-color').value, enabled: $('#oc-enabled').checked,
+      };
+      try {
+        const data = await api('/admin/api/occasions/custom', { method: 'POST', body });
+        setState(data.state); resetCustom(); msg($('#occCustomMsg'), 'Saved ✓');
+      } catch (err) { msg($('#occCustomMsg'), err.message, 'err'); }
+    });
+    effectOptions($('#oc-effect'), 'confetti');
+  }
+  function renderCustom() { if (window.__renderCustom) window.__renderCustom(); }
+
+  /* ======================================================= categories */
+  let editingCat = '';
+  let pickedIcon = '';
+  let pickedColor = '';
+  function renderCategories() {
+    const c = state.categories;
+    if (!c || !$('#catList')) return;
+    $('#catList').replaceChildren(...c.all.map((cat) => {
+      const custom = c.custom.find((x) => x.key === cat.key);
+      const actions = [];
+      if (custom) {
+        const up = h('button', { class: 'icon-btn', type: 'button', title: 'Move up', 'aria-label': 'Move ' + cat.label + ' up' }, icon('arrow-up'));
+        up.addEventListener('click', () => moveCat(cat.key, -1));
+        const edit = h('button', { class: 'icon-btn', type: 'button', title: 'Edit', 'aria-label': 'Edit ' + cat.label }, icon('code'));
+        edit.addEventListener('click', () => editCat(custom));
+        const del = h('button', { class: 'icon-btn', type: 'button', title: 'Delete', 'aria-label': 'Delete ' + cat.label }, icon('times'));
+        del.addEventListener('click', () => deleteCat(custom));
+        actions.push(up, edit, del);
+      }
+      return h('div', { class: 'cat-item' },
+        h('img', { src: I8(cat.icon), alt: '', width: '34', height: '34', loading: 'lazy' }),
+        h('div', {}, h('b', { text: cat.label }), h('small', { text: ` · ${cat.count} project${cat.count === 1 ? '' : 's'}${cat.builtin ? ' · built-in' : ''}` })),
+        custom ? h('i', { class: 'cat-swatch', title: custom.color, 'data-color': custom.color }) : null,
+        h('div', { class: 'row-actions' }, actions));
+    }));
+    $$('.cat-swatch[data-color]').forEach((el) => { el.style.background = el.dataset.color; });
+    if (!$('#c-icons').childElementCount) buildPickers();
+  }
+  function buildPickers() {
+    const c = state.categories;
+    $('#c-icons').replaceChildren(...c.icons.map((name) => {
+      const b = h('button', { type: 'button', class: 'icon-choice', role: 'radio', 'aria-checked': 'false', title: name, 'data-icon': name },
+        h('img', { src: I8(name), alt: name, width: '30', height: '30', loading: 'lazy' }));
+      b.addEventListener('click', () => chooseIcon(name));
+      return b;
+    }));
+    $('#c-colors').replaceChildren(...c.colors.map((hex) => {
+      const b = h('button', { type: 'button', class: 'swatch', role: 'radio', 'aria-checked': 'false', title: hex, 'aria-label': hex, 'data-color': hex });
+      b.style.background = hex;
+      b.addEventListener('click', () => chooseColor(hex));
+      return b;
+    }));
+    chooseIcon(c.icons[0]); chooseColor(c.colors[0]);
+  }
+  function chooseIcon(name) { pickedIcon = name; $$('#c-icons .icon-choice').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.icon === name))); }
+  function chooseColor(hex) { pickedColor = hex; $$('#c-colors .swatch').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.color === hex))); }
+  function editCat(cat) {
+    editingCat = cat.key;
+    $('#c-name').value = cat.name; $('#c-desc').value = cat.description || '';
+    chooseIcon(cat.icon); chooseColor(cat.color);
+    $('#catFormTitle').textContent = 'Edit “' + cat.name + '”'; $('#catCancel').hidden = false;
+    $('#catForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  function resetCat() {
+    editingCat = ''; $('#catForm').reset(); $('#catFormTitle').textContent = 'Add a category'; $('#catCancel').hidden = true;
+  }
+  async function moveCat(key, step) {
+    try { const data = await api('/admin/api/categories/move', { method: 'POST', body: { key, step } }); setState(data.state); }
+    catch (e) { toast(e.message, 'err'); }
+  }
+  async function deleteCat(cat) {
+    if (!confirm(`Delete “${cat.name}”? Its ${cat.count || 0} project(s) move to Other.`)) return;
+    try { const data = await api('/admin/api/categories/delete', { method: 'POST', body: { key: cat.key } }); setState(data.state); toast(`Deleted · ${data.moved} moved to Other`); }
+    catch (e) { toast(e.message, 'err'); }
+  }
+  if ($('#catForm')) {
+    $('#catCancel').addEventListener('click', resetCat);
+    $('#catForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        const data = await api('/admin/api/categories/save', { method: 'POST', body: { key: editingCat, name: $('#c-name').value.trim(), description: $('#c-desc').value.trim(), icon: pickedIcon, color: pickedColor } });
+        setState(data.state); resetCat(); msg($('#catMsg'), 'Saved ✓');
+      } catch (err) { msg($('#catMsg'), err.message, 'err'); }
+    });
+  }
+
+  /* ========================================================= security */
+  function renderSecurity() {
+    const box = $('#securityList');
+    const sec = state.security;
+    if (!box || !sec) return;
+    const items = [];
+    if (sec.blocked.length) {
+      const all = h('button', { class: 'btn-glass btn-sm', type: 'button' }, icon('undo'), h('span', { text: 'Unblock everyone' }));
+      all.addEventListener('click', () => unblock('*'));
+      items.push(h('div', { class: 'd-flex justify-content-end mb-2' }, all));
+    }
+    items.push(...(sec.blocked.length ? sec.blocked.map((b) => {
+      const btn = h('button', { class: 'btn-glass btn-sm', type: 'button' }, icon('undo'), h('span', { text: 'Unblock' }));
+      btn.addEventListener('click', () => unblock(b.ip));
+      return h('div', { class: 'ra-item is-blocked' },
+        h('div', {}, h('b', { text: b.ip + (b.ip === sec.you ? ' (this is you)' : '') }),
+          h('small', { text: ` · blocked ${when(b.at)} after ${b.count} wrong passwords${b.agent ? ' · ' + b.agent.slice(0, 70) : ''}` })),
+        btn);
+    }) : [h('p', { class: 'hint', text: 'No blocked networks. ✓' })]));
+    if (sec.watching.length) {
+      items.push(h('p', { class: 'hint mt-2', text: 'Recent wrong passwords (not blocked yet):' }));
+      sec.watching.forEach((w) => items.push(h('div', { class: 'ra-item' },
+        h('div', {}, h('b', { text: w.ip }), h('small', { text: ` · ${w.count} of ${sec.max_failures} · last ${when(w.last)}` })))));
+    }
+    box.replaceChildren(...items);
+  }
+  async function unblock(ip) {
+    if (ip === '*' && !confirm('Unblock every network?')) return;
+    try {
+      const data = await api('/admin/api/security/unblock', { method: 'POST', body: { ip } });
+      setState(data.state); toast(`Unblocked ${data.removed} network(s)`);
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  renderTranslations();
+  renderOccasions();
+  renderCategories();
+  renderSecurity();
 })();

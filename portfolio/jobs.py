@@ -11,7 +11,7 @@ import threading
 import time
 from typing import Any
 
-from . import ai, github
+from . import ai, github, occasions, translate
 from .store import now_iso, store
 
 log = logging.getLogger("portfolio")
@@ -65,13 +65,87 @@ def categorize(name: str) -> dict[str, Any]:
     return store.mutate(save)
 
 
+# ------------------------------------------------------------- translations --
+def translation_plan() -> list[dict[str, str]]:
+    from .views import visible_entries
+
+    doc = store.get()
+    return translate.plan(doc, visible_entries(doc))
+
+
+def translate_one(name: str, lang: str) -> dict[str, Any]:
+    """Translate one project's card text (or the profile text) into `lang` and store it."""
+    if lang not in translate.TARGET_LANGS:
+        raise ValueError("unsupported language")
+    doc = store.get()
+    if name == translate.PROFILE_KEY:
+        source = translate.profile_source(doc["profile"])
+        if not source:
+            raise KeyError(name)
+        result = ai.translate(source, lang)  # slow network call, outside the lock
+        result.update(src=translate.src_hash(source), at=now_iso())
+
+        def save_profile(d: dict[str, Any]) -> dict[str, Any]:
+            if translate.src_hash(translate.profile_source(d["profile"])) != result["src"]:
+                return {"stale": True}  # the profile changed meanwhile - redo next time
+            d.setdefault("profile_i18n", {})[lang] = result
+            return result
+
+        return store.mutate(save_profile)
+
+    key, entry = find_repo(doc, name)
+    source = translate.repo_source(entry)
+    if not source:
+        raise KeyError(name)
+    result = ai.translate(source, lang)
+    result.update(src=translate.src_hash(source), at=now_iso())
+
+    def save(d: dict[str, Any]) -> dict[str, Any]:
+        current = d["repos"].get(key)
+        if not current or translate.src_hash(translate.repo_source(current) or {}) != result["src"]:
+            return {"stale": True}
+        current["ai"].setdefault("i18n", {})[lang] = result
+        return result
+
+    return store.mutate(save)
+
+
+def translate_pending(deadline: float | None, report: dict[str, Any]) -> None:
+    """Translate whatever is missing until the deadline (monotonic) or the AI is down."""
+    done = report.setdefault("translated", [])
+    for job in translation_plan():
+        if deadline and time.monotonic() > deadline:
+            report["translations_deferred"] = True
+            return
+        try:
+            translate_one(job["name"], job["lang"])
+            done.append(f"{job['name']}:{job['lang']}")
+        except ai.AIUnavailable as exc:
+            report["errors"].append(f"AI unavailable for translations: {exc}")
+            return
+        except Exception as exc:  # noqa: BLE001 - keep going with the next one
+            report["errors"].append(f"translate {job['name']}:{job['lang']}: {exc}")
+
+
+# ----------------------------------------------------------------- festivals --
+def sync_occasions() -> dict[str, Any]:
+    """Check festival dates against Google Calendar's public holiday calendars (no AI)."""
+    result = occasions.fetch_all()  # network, outside the lock
+    return store.mutate(lambda doc: occasions.apply(doc, result))
+
+
 def auto_run(budget_seconds: float | None = None) -> dict[str, Any]:
-    """Sync GitHub, then categorize NEW repositories only (old ones are kept)."""
+    """Check festival dates, sync GitHub, categorize NEW repositories (old ones are kept), then
+    translate any project text that is not yet in every site language."""
     if not _auto_lock.acquire(blocking=False):
         return {"skipped": "another sync is already running"}
     started = time.monotonic()
     report: dict[str, Any] = {"categorized": [], "errors": [], "deferred": []}
     try:
+        try:  # first, and on its own: a GitHub outage must not stop the festival check (or vice versa)
+            report["occasions"] = sync_occasions()
+        except Exception as exc:  # noqa: BLE001
+            report["errors"].append(f"festival dates: {exc}")
         report["sync"] = sync_github()
         pending = plan("new")
         for index, name in enumerate(pending):
@@ -87,6 +161,8 @@ def auto_run(budget_seconds: float | None = None) -> dict[str, Any]:
                 break
             except Exception as exc:  # noqa: BLE001 - keep going with the next repo
                 report["errors"].append(f"{name}: {exc}")
+        if not report["deferred"] and not any(e.startswith("AI unavailable") for e in report["errors"]):
+            translate_pending(started + budget_seconds if budget_seconds else None, report)
     except github.GitHubError as exc:
         report["errors"].append(str(exc))
     finally:

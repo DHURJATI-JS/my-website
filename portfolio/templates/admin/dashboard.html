@@ -116,6 +116,124 @@
       </form>
     </section>
 
+
+    <section class="admin-card glass mt-4" id="translateCard">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <h2 class="mb-0">{{ icon('language') }}Translations</h2>
+        <button class="btn-glow btn-sm" type="button" id="translateRun">{{ icon('magic') }}<span>Translate missing now</span></button>
+      </div>
+      <p class="hint">Menus and headings are translated by the site itself. What the AI wrote about each project (title, summary,
+        key points…) and your headline/biography are translated by your AI, once per language, and saved. The daily sync
+        translates new or changed projects automatically. Until a translation exists, visitors see the English text.</p>
+      <div class="tr-progress" id="translateProgress"></div>
+      <div class="progress-wrap" id="translateWrap" hidden>
+        <div class="progress-track"><span class="progress-fill" id="translateFill"></span></div>
+        <div class="progress-text" id="translateText"></div>
+      </div>
+    </section>
+
+    <section class="admin-card glass mt-4" id="occasionCard">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <h2 class="mb-0">{{ icon('magic') }}Festivals &amp; occasions</h2>
+        <button class="btn-glass btn-sm" type="button" id="occRefresh">{{ icon('sync') }}<span>Refresh dates · next 5 years</span></button>
+      </div>
+      <p class="hint">A greeting slides down on the site with an effect (snow, diyas, fireworks…). Dates are checked once a day
+        against Google Calendar's public holiday calendars. The visitor's <b>site language</b> picks the country — English,
+        Hindi and Marathi → India · Spanish → Spain &amp; Mexico · French → France · German → Germany · Japanese → Japan ·
+        Russian → Russia. If that country has nothing on, or its calendar can't be loaded, India's festival is shown.</p>
+      <div class="occ-status" id="occStatus" aria-live="polite"></div>
+
+      <div class="row g-4 mt-1">
+        <div class="col-lg-5">
+          <h3 class="mini-title">Mode</h3>
+          <form id="occSettings" class="profile-form" novalidate>
+            <div class="occ-modes">
+              <label class="check"><input type="radio" name="mode" value="auto"> <b>Automatic</b> · by date and visitor language</label>
+              <label class="check"><input type="radio" name="mode" value="forced"> <b>Always show one</b> (for everyone)</label>
+              <label class="check"><input type="radio" name="mode" value="off"> <b>Off</b> · no festivals at all</label>
+            </div>
+            <div class="row g-2 mt-1" id="occForcedRow">
+              <div class="col-sm-7"><label for="occForced">Festival to show</label><select class="field" id="occForced" name="forced"></select></div>
+              <div class="col-sm-5"><label for="occUntil">Until <small>(then automatic)</small></label><input class="field" id="occUntil" name="until" type="date"></div>
+            </div>
+            <label class="check mt-2"><input type="checkbox" id="occHome" name="home_fallback"> When a visitor's country has nothing on, show India's festival</label>
+            <div class="d-flex flex-wrap gap-3 mt-3">
+              <button class="btn-glow btn-sm" type="submit">{{ icon('save') }}<span>Save mode</span></button>
+              <span class="form-msg" id="occSettingsMsg" aria-live="polite"></span>
+            </div>
+          </form>
+          <h3 class="mini-title mt-4">Showing right now</h3>
+          <ul class="occ-now" id="occNow"></ul>
+        </div>
+
+        <div class="col-lg-7">
+          <h3 class="mini-title">Change a festival's image, greeting or effect</h3>
+          <form id="occFestival" class="profile-form" novalidate>
+            <div class="row g-2">
+              <div class="col-sm-7"><label for="occPick">Festival</label><select class="field" id="occPick"></select></div>
+              <div class="col-sm-5 d-flex align-items-end"><label class="check mb-2"><input type="checkbox" id="occEnabled"> Show this festival</label></div>
+              <div class="col-12"><label for="occGreeting">Greeting <small>(blank = the built-in one, in the visitor's language)</small></label>
+                <input class="field" id="occGreeting" maxlength="160"></div>
+              <div class="col-12"><label for="occImage">Background image <small>(https link — blank = festive colours)</small></label>
+                <input class="field" id="occImage" type="url" maxlength="600" placeholder="https://images.unsplash.com/…"></div>
+              <div class="col-sm-6"><label for="occEffect">Effect</label><select class="field" id="occEffect"></select></div>
+              <div class="col-sm-6"><div class="occ-thumb" id="occThumb" aria-hidden="true"></div></div>
+            </div>
+            <div class="d-flex flex-wrap gap-2 mt-3">
+              <button class="btn-glow btn-sm" type="submit">{{ icon('save') }}<span>Save festival</span></button>
+              <button class="btn-glass btn-sm" type="button" id="occReset">{{ icon('undo') }}<span>Reset to default</span></button>
+              <a class="btn-glass btn-sm" id="occPreview" href="/" target="_blank" rel="noopener">{{ icon('external-link') }}<span>Preview on site</span></a>
+              <span class="form-msg" id="occFestivalMsg" aria-live="polite"></span>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <h3 class="mini-title mt-4">Your own occasions <small>(birthday, launch day… shown to everyone, in every language)</small></h3>
+      <div class="research-admin-list" id="occCustomList" aria-live="polite"></div>
+      <form id="occCustom" class="profile-form research-form" novalidate>
+        <h3 class="mini-title" id="occCustomTitle">Add an occasion</h3>
+        <div class="row g-2">
+          <div class="col-md-5"><label for="oc-name">Name</label><input class="field" id="oc-name" maxlength="60" required placeholder="e.g. My birthday"></div>
+          <div class="col-md-2"><label for="oc-emoji">Emoji</label><input class="field" id="oc-emoji" maxlength="8" value="🎉"></div>
+          <div class="col-md-5"><label for="oc-greeting">Greeting</label><input class="field" id="oc-greeting" maxlength="160" placeholder="e.g. It's my birthday — thanks for visiting!"></div>
+          <div class="col-md-3"><label for="oc-start">From</label><input class="field" id="oc-start" type="date" required></div>
+          <div class="col-md-3"><label for="oc-end">To <small>(blank = one day)</small></label><input class="field" id="oc-end" type="date"></div>
+          <div class="col-md-3 d-flex align-items-end"><label class="check mb-2"><input type="checkbox" id="oc-yearly"> Every year</label></div>
+          <div class="col-md-3 d-flex align-items-end"><label class="check mb-2"><input type="checkbox" id="oc-enabled" checked> Switched on</label></div>
+          <div class="col-md-6"><label for="oc-image">Background image <small>(https, optional)</small></label><input class="field" id="oc-image" type="url" maxlength="600"></div>
+          <div class="col-md-4"><label for="oc-effect">Effect</label><select class="field" id="oc-effect"></select></div>
+          <div class="col-md-2"><label for="oc-color">Colour</label><input class="field field-color" id="oc-color" type="color" value="#f59e0b"></div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 mt-3">
+          <button class="btn-glow btn-sm" type="submit">{{ icon('save') }}<span>Save occasion</span></button>
+          <button class="btn-glass btn-sm" type="button" id="occCustomCancel" hidden>{{ icon('times') }}<span>Cancel editing</span></button>
+          <span class="form-msg" id="occCustomMsg" aria-live="polite"></span>
+        </div>
+      </form>
+    </section>
+
+    <section class="admin-card glass mt-4" id="categoryCard">
+      <h2>{{ icon('layer-group') }}Categories</h2>
+      <p class="hint"><b>Social impact</b> and <b>Industry &amp; startup</b> are chosen by the AI; <b>Other</b> and your own
+        categories only by you (change a project's group in the table below). Deleting a category moves its projects to Other.</p>
+      <div class="cat-admin-list" id="catList" aria-live="polite"></div>
+      <form id="catForm" class="profile-form research-form" novalidate>
+        <h3 class="mini-title" id="catFormTitle">Add a category</h3>
+        <div class="row g-2">
+          <div class="col-md-4"><label for="c-name">Name</label><input class="field" id="c-name" maxlength="40" required placeholder="e.g. Games"></div>
+          <div class="col-md-8"><label for="c-desc">Description <small>(optional)</small></label><input class="field" id="c-desc" maxlength="160"></div>
+          <div class="col-12"><label>Icon</label><div class="icon-picker" id="c-icons" role="radiogroup" aria-label="Icon"></div></div>
+          <div class="col-12"><label>Colour</label><div class="swatches" id="c-colors" role="radiogroup" aria-label="Colour"></div></div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 mt-3">
+          <button class="btn-glow btn-sm" type="submit">{{ icon('save') }}<span>Save category</span></button>
+          <button class="btn-glass btn-sm" type="button" id="catCancel" hidden>{{ icon('times') }}<span>Cancel editing</span></button>
+          <span class="form-msg" id="catMsg" aria-live="polite"></span>
+        </div>
+      </form>
+    </section>
+
     <section class="admin-card glass mt-4">
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
         <h2 class="mb-0">{{ icon('layer-group') }}Repositories</h2>
@@ -166,6 +284,16 @@
           <span class="form-msg" id="profileMsg" aria-live="polite"></span>
         </div>
       </form>
+    </section>
+
+
+    <section class="admin-card glass mt-4" id="securityCard">
+      <h2>{{ icon('shield') }}Security · blocked networks</h2>
+      <p class="hint">{{ state.security.max_failures }} wrong admin passwords from one network block it completely — every page and
+        API call (GET and POST) returns “Access blocked” until you unblock it here. Your own signed-in session always keeps
+        working. Locked out? Sign in from another network (e.g. phone data), or run <code>python scripts/unblock_ip.py --all</code>
+        on your PC. Note: phone networks often share one address between many people.</p>
+      <div id="securityList" aria-live="polite"></div>
     </section>
 
     <section class="admin-card glass mt-4">

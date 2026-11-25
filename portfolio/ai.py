@@ -155,18 +155,19 @@ def build_prompt(entry: dict[str, Any]) -> str:
     )
 
 
-def _chat(provider: Provider, prompt: str, *, structured: bool) -> str:
+def _chat(provider: Provider, prompt: str, *, structured: bool, schema: dict[str, Any] | None = None,
+          name: str = "repo_analysis", max_tokens: int | None = None) -> str:
     payload: dict[str, Any] = {
         "model": provider.model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
-        "max_tokens": settings.ai_max_tokens,
+        "max_tokens": max_tokens or settings.ai_max_tokens,
         "stream": False,
     }
     if structured:
         payload["response_format"] = {
             "type": "json_schema",
-            "json_schema": {"name": "repo_analysis", "strict": True, "schema": SCHEMA},
+            "json_schema": {"name": name, "strict": True, "schema": schema or SCHEMA},
         }
     headers = {"Authorization": f"Bearer {provider.api_key}"} if provider.api_key else {}
     try:
@@ -261,6 +262,88 @@ def analyze(entry: dict[str, Any]) -> dict[str, Any]:
             result.update(method="ai", provider=provider.key, model=provider.model,
                           seconds=round(time.monotonic() - started, 1))
             return result
+    raise AIUnavailable("; ".join(errors) or "no AI provider is configured")
+
+
+# ------------------------------------------------------------- translation --
+LANGUAGE_NAMES = {
+    "hi": "Hindi (Devanagari script)", "mr": "Marathi (Devanagari script)", "es": "Spanish",
+    "fr": "French", "de": "German", "ja": "Japanese", "ru": "Russian",
+}
+TRANSLATE_FIELDS = ("title", "summary", "problem", "reason", "audience", "key_points", "headline", "bio")
+_LIMITS = {"title": 80, "summary": 900, "problem": 400, "reason": 400, "audience": 200,
+           "headline": 400, "bio": 4500}
+
+TRANSLATE_PROMPT = """Translate the values of this JSON object from English into {language}.
+Rules:
+- Keep project names, product names, technology names (Python, FastAPI, Docker, ...), code,
+  numbers, emails and URLs exactly as they are.
+- Natural, simple wording a visitor would read on a portfolio website. No markdown, no emojis.
+- Keep blank lines between paragraphs.
+- Return ONLY a JSON object with exactly the same keys. A list must stay a list with the same
+  number of items, in the same order.
+
+JSON:
+{payload}
+"""
+
+
+def _translate_schema(fields: dict[str, Any]) -> dict[str, Any]:
+    props: dict[str, Any] = {}
+    for key, value in fields.items():
+        if isinstance(value, list):
+            props[key] = {"type": "array", "items": {"type": "string"},
+                          "minItems": len(value), "maxItems": len(value)}
+        else:
+            props[key] = {"type": "string"}
+    return {"type": "object", "properties": props, "required": list(fields), "additionalProperties": False}
+
+
+def translate(fields: dict[str, Any], lang: str) -> dict[str, Any]:
+    """Translate {field: text | [text]} into `lang`. Raises AIUnavailable if every provider fails."""
+    if lang not in LANGUAGE_NAMES:
+        raise ValueError(f"unsupported language {lang!r}")
+    clean = {k: v for k, v in fields.items() if k in TRANSLATE_FIELDS and v}
+    if not clean:
+        return {}
+    prompt = TRANSLATE_PROMPT.format(language=LANGUAGE_NAMES[lang],
+                                     payload=json.dumps(clean, ensure_ascii=False, indent=1))
+    schema = _translate_schema(clean)
+    errors: list[str] = []
+    for provider in providers():
+        for structured in (True, False):
+            try:
+                raw = _chat(provider, prompt, structured=structured, schema=schema, name="translation",
+                            max_tokens=max(settings.ai_max_tokens, 400 + len(prompt) // 2))
+                data = _extract_json(raw)
+                out: dict[str, Any] = {}
+                for key, value in clean.items():
+                    got = data.get(key)
+                    if isinstance(value, list):
+                        items = [_clip(x, 220) for x in got] if isinstance(got, list) else []
+                        if len(items) != len(value) or not all(items):
+                            raise ValueError(f"{key}: list changed length")
+                        out[key] = items
+                    else:
+                        text = str(got or "").strip()
+                        if not text:
+                            raise ValueError(f"{key}: empty")
+                        if key == "bio":  # keep paragraphs
+                            text = "\n\n".join(re.sub(r"[ \t]+", " ", p).strip()
+                                                for p in re.split(r"\n\s*\n", text) if p.strip())
+                            out[key] = text[: _LIMITS[key]]
+                        else:
+                            out[key] = _clip(text, _LIMITS.get(key, 400))
+                out.update(provider=provider.key, model=provider.model)
+                return out
+            except AIError as exc:
+                errors.append(str(exc))
+                if structured and exc.status in (400, 404, 415, 422, 500):
+                    continue
+                break
+            except ValueError as exc:
+                errors.append(f"{provider.label}: bad translation ({exc})")
+                continue
     raise AIUnavailable("; ".join(errors) or "no AI provider is configured")
 
 

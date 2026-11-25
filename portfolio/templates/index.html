@@ -1,6 +1,13 @@
 {% extends "base.html" %}
 {% block title %}{{ me.name }} — {{ t('nav_projects') }}{% endblock %}
 
+{% block head %}
+{% if custom_categories %}
+{# colours of your own categories (only values from the fixed palette in categories.py) #}
+<style nonce="{{ nonce }}">{% for c in custom_categories %}.dot-{{ c.key }}{background:{{ c.color }};box-shadow:0 0 0 3px {{ c.color }}3d}{% endfor %}</style>
+{% endif %}
+{% endblock %}
+
 {% block content %}
 {# ================================================================ HERO #}
 <section class="hero" id="top">
@@ -57,11 +64,11 @@
 <section class="kpi-band" aria-label="{{ t('nav_stats') }}">
   <div class="container">
     <div class="kpi-grid">
-      {% for img, label, value in [('opened-folder', t('stat_projects'), counts.all), ('handshake', t('stat_social'), counts.social), ('rocket', t('stat_industry'), counts.industry), ('star', t('stat_stars'), counts.stars)] %}
-      <div class="kpi glass reveal">
+      {% for img, label, value, url in [('opened-folder', t('stat_projects'), counts.all, ''), ('handshake', t('stat_social'), counts.social, ''), ('rocket', t('stat_industry'), counts.industry, ''), ('star', t('stat_stars'), counts.stars, ''), ('user-group-man-man', t('stat_followers'), counts.followers, followers_url)] %}
+      {% if url %}<a class="kpi glass reveal kpi-link" href="{{ url }}" target="_blank" rel="noopener me">{% else %}<div class="kpi glass reveal">{% endif %}
         <img src="{{ i8(img) }}" alt="" width="52" height="52" loading="lazy" decoding="async">
         <div><span class="kpi-value" data-count="{{ value }}">{{ value }}</span><span class="kpi-label">{{ label }}</span></div>
-      </div>
+      {% if url %}</a>{% else %}</div>{% endif %}
       {% endfor %}
     </div>
   </div>
@@ -87,7 +94,7 @@
         <header class="rcard-head">
           <div class="rcard-chips">
             <span class="research-chip">{{ icon('check-circle') }}{{ t('research_chip') }}</span>
-            <span class="cat-chip"><i class="dot dot-{{ x.category }}"></i>{{ t('cat_' ~ x.category) }}</span>
+            <span class="cat-chip"><i class="dot dot-{{ x.category }}"></i>{{ (cats[x.category] or cats.other).label }}</span>
           </div>
           <h3 class="rcard-title">{{ x.title }}</h3>
           <p class="pcard-repo">{{ icon('github') }}<span>{{ x.name }}</span></p>
@@ -174,9 +181,9 @@
       <div class="seg" role="tablist" aria-label="{{ t('projects_title') }}" id="catTabs">
         <span class="seg-glider" aria-hidden="true"></span>
         <button type="button" class="seg-btn is-active" role="tab" aria-selected="true" data-filter="all">{{ icon('layer-group') }}<span>{{ t('cat_all') }}</span><b>{{ counts.all }}</b></button>
-        <button type="button" class="seg-btn" role="tab" aria-selected="false" data-filter="social"><i class="dot dot-social"></i><span>{{ t('cat_social') }}</span><b>{{ counts.social }}</b></button>
-        <button type="button" class="seg-btn" role="tab" aria-selected="false" data-filter="industry"><i class="dot dot-industry"></i><span>{{ t('cat_industry') }}</span><b>{{ counts.industry }}</b></button>
-        {% if counts.other %}<button type="button" class="seg-btn" role="tab" aria-selected="false" data-filter="other"><i class="dot dot-other"></i><span>{{ t('cat_other') }}</span><b>{{ counts.other }}</b></button>{% endif %}
+        {% for g in groups if g.repos or g.key in ('social', 'industry') %}
+        <button type="button" class="seg-btn" role="tab" aria-selected="false" data-filter="{{ g.key }}"><i class="dot dot-{{ g.key }}"></i><span>{{ cats[g.key].label }}</span><b>{{ g.repos|length }}</b></button>
+        {% endfor %}
       </div>
       <label class="search-box">{{ icon('search') }}<span class="visually-hidden">{{ t('search') }}</span>
         <input type="search" id="projectSearch" placeholder="{{ t('search') }}" autocomplete="off" spellcheck="false" maxlength="80">
@@ -194,10 +201,10 @@
     {% for g in groups if g.repos %}
     <div class="group" data-group="{{ g.key }}">
       <div class="group-head reveal">
-        <img class="group-icon" src="{{ i8(g.icon) }}" alt="" width="54" height="54" loading="lazy" decoding="async">
+        <img class="group-icon" src="{{ i8(cats[g.key].icon) }}" alt="" width="54" height="54" loading="lazy" decoding="async">
         <div>
-          <h3 class="group-title"><i class="dot dot-{{ g.key }}"></i>{{ t('cat_' ~ g.key) }} <span class="group-count">{{ g.repos|length }}</span></h3>
-          <p class="group-desc">{{ t('cat_' ~ g.key ~ '_desc') }}</p>
+          <h3 class="group-title"><i class="dot dot-{{ g.key }}"></i>{{ cats[g.key].label }} <span class="group-count">{{ g.repos|length }}</span></h3>
+          {% if cats[g.key].desc %}<p class="group-desc">{{ cats[g.key].desc }}</p>{% endif %}
         </div>
       </div>
       <div class="cards">

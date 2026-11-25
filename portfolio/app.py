@@ -19,6 +19,7 @@ from .ratelimit import limiter
 from .routes_admin import AuthRequired, router as admin_router
 from .routes_public import router as public_router
 from .security import TalismanMiddleware
+from .lockout import BanMiddleware
 from .web import render
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -99,6 +100,7 @@ def create_app() -> FastAPI:
         max_age=86400,
     )
     app.add_middleware(GZipMiddleware, minimum_size=800)
+    app.add_middleware(BanMiddleware)  # banned networks: 403 for every GET/POST before any route runs
     app.add_middleware(TalismanMiddleware, frame_ancestors=settings.frame_ancestors)
 
     app.include_router(public_router)

@@ -136,6 +136,28 @@ def fetch_readme_html(full_name: str) -> str:
     return resp.text() if resp else ""
 
 
+_OG_IMAGE_RE = re.compile(r'<meta\s+property="og:image"\s+content="([^"]+)"', re.I)
+_CUSTOM_OG_HOST = "https://repository-images.githubusercontent.com/"
+
+
+def fetch_social_image(full_name: str) -> str | None:
+    """The repo's custom social-preview image (Settings -> Social preview), read from its page.
+
+    Returns "" when the repo has none, or None when GitHub could not be read (keep the old value).
+    The REST API does not expose this image, and GraphQL needs a token, so the public page is used.
+    """
+    try:
+        resp = httpclient.request("GET", f"https://github.com/{full_name}", headers={"Accept": "text/html"},
+                                  connect_timeout=6, read_timeout=20, max_bytes=3_000_000)
+    except httpclient.FetchError:
+        return None
+    if resp.status != 200:
+        return None
+    match = _OG_IMAGE_RE.search(resp.text()[:200_000])
+    url = match.group(1).replace("&amp;", "&") if match else ""
+    return url if url.startswith(_CUSTOM_OG_HOST) and len(url) <= 500 else ""
+
+
 def _excerpt(markdown: str) -> str:
     text = re.sub(r"<!--.*?-->", "", markdown, flags=re.S)
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
@@ -263,6 +285,13 @@ def collect(doc: dict[str, Any]) -> dict[str, Any]:
         except GitHubError as exc:
             return key, None, f"{repo['name']}: {exc}"
 
+    shown = [(key, result["repos"][key]["full_name"]) for key in result["repos"]
+             if include_forks or not result["repos"][key]["fork"]]
+
+    def social(item: tuple[str, str]) -> tuple[str, str | None]:
+        key, full_name = item
+        return key, fetch_social_image(full_name)
+
     with ThreadPoolExecutor(max_workers=6) as pool:
         for key, bundle, error in pool.map(work, jobs):
             if error:
@@ -270,6 +299,9 @@ def collect(doc: dict[str, Any]) -> dict[str, Any]:
             elif bundle:
                 result["repos"][key].update(bundle)
                 result["readmes"] += 1
+        for key, image in pool.map(social, shown):
+            if image is not None:  # None = GitHub unreachable: keep what we had
+                result["repos"][key]["social_image"] = image
 
     if profile_repo is None:
         result["profile"] = {"profile_readme_html": "", "stats_images": [], "profile_pushed_at": ""}
@@ -309,7 +341,8 @@ def apply(doc: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
                 gone.append(entry.get("name", key))
             # Deleted or made private: drop its README copy so it can't leak through the
             # data file or Gist. It is fetched again if the repo becomes public again.
-            for field in ("readme_html", "readme_excerpt", "readme_sha", "readme_path", "readme_pushed_at"):
+            for field in ("readme_html", "readme_excerpt", "readme_sha", "readme_path", "readme_pushed_at",
+                          "social_image"):
                 entry.pop(field, None)
     github = doc["github"]
     github["user"] = result["user"]

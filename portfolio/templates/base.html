@@ -1,3 +1,4 @@
+{% set occasion = occasion if page != 'admin' else none %}
 <!doctype html>
 <html lang="{{ lang }}" data-mdb-theme="dark">
 <head>
@@ -25,9 +26,14 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400..800&display=swap">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mdb-ui-kit@{{ mdb_version }}/css/mdb.min.css" integrity="{{ mdb_css_sri }}" crossorigin="anonymous">
   <link rel="stylesheet" href="{{ static('app.css') }}">
+  {% if occasion %}
+  {# festival colours (fixed palette / validated hex) and your background image (https only, quotes and
+     brackets percent-encoded by occasions.css_url, so it cannot break out of url("...")) #}
+  <style nonce="{{ nonce }}">:root{--occ-a:{{ occasion.palette[0] }};--occ-b:{{ occasion.palette[1] if occasion.palette|length > 1 else occasion.palette[0] }};--occ-c:{{ occasion.palette[2] if occasion.palette|length > 2 else occasion.palette[0] }}}{% if occasion.image %}.occasion-bg.has-image{background-image:url("{{ occasion.image|safe }}")}{% endif %}</style>
+  {% endif %}
   {% block head %}{% endblock %}
 </head>
-<body class="page-{{ page or 'default' }}">
+<body class="page-{{ page or 'default' }}{% if occasion %} has-occasion occ-{{ occasion.effect }}{% endif %}">
   <a class="skip-link" href="#main">{{ t('skip') }}</a>
   <div class="scene" aria-hidden="true">
     <span class="orb orb-1"></span><span class="orb orb-2"></span><span class="orb orb-3"></span>
@@ -36,6 +42,18 @@
   <div class="scroll-progress" aria-hidden="true"><span id="scrollBar"></span></div>
 
   {% include "_nav.html" %}
+
+  {% if occasion %}
+  <div class="occasion-bg{% if occasion.image %} has-image{% endif %}" aria-hidden="true"></div>
+  <canvas class="occasion-fx" id="occasionFx" aria-hidden="true"></canvas>
+  <div class="occasion-banner" id="occasionBanner" role="status">
+    <span class="ob-emoji" aria-hidden="true">{{ occasion.emoji }}</span>
+    <span class="ob-text">{{ occasion.greeting }}</span>
+    {% if occasion_preview %}<span class="ob-preview" lang="en" title="Only you (signed in) see this preview">Preview</span>{% endif %}
+    <button type="button" class="ob-close" id="occasionClose" aria-label="{{ t('occ_close') }}" title="{{ t('occ_close') }}">{{ icon('times') }}</button>
+  </div>
+  <script type="application/json" id="occasionData" nonce="{{ nonce }}">{{ {"effect": occasion.effect, "palette": occasion.palette, "id": occasion.id, "preview": occasion_preview}|tojson }}</script>
+  {% endif %}
 
   <main id="main" tabindex="-1">
     {% block content %}{% endblock %}
@@ -49,6 +67,7 @@
   <script type="application/json" id="i18n" nonce="{{ nonce }}">{{ js_strings|tojson }}</script>
   <script src="https://cdn.jsdelivr.net/npm/mdb-ui-kit@{{ mdb_version }}/js/mdb.umd.min.js" integrity="{{ mdb_js_sri }}" crossorigin="anonymous" nonce="{{ nonce }}" defer></script>
   <script src="{{ static('app.js') }}" nonce="{{ nonce }}" defer></script>
+  {% if occasion %}<script src="{{ static('occasion.js') }}" nonce="{{ nonce }}" defer></script>{% endif %}
   {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -3,9 +3,11 @@
 {% set status_label = t('ai_summary') if r.status == 'ai' else (t('curated') if r.status == 'manual' else t('ai_pending')) %}
 {% set rx = research_by_name.get(r.name) if research_by_name is defined and research_by_name else none %}
 <template id="tpl-{{ r.slug }}" data-name="{{ r.name }}" data-title="{{ r.title }}" data-url="{{ r.html_url }}" data-home="{{ r.homepage }}">
+  {% if r.banner %}<img class="m-banner" src="{{ r.banner }}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" width="1280" height="640">{% endif %}
   <p class="m-summary">{{ r.summary or r.description or t('no_description') }}</p>
   <div class="m-chips">
-    <span class="cat-chip"><i class="dot dot-{{ r.category }}"></i>{{ t('cat_' ~ r.category) }}</span>
+    <span class="cat-chip"><i class="dot dot-{{ r.category }}"></i>{{ (cats[r.category] or cats.other).label }}</span>
+    {% if r.translated %}<span class="tr-chip" title="{{ t('ai_translated') }}">{{ icon('language') }}{{ t('ai_translated') }}</span>{% endif %}
     {% if rx %}<span class="research-chip">{{ icon('check-circle') }}{{ t('research_chip') }}</span>{% endif %}
     <span class="ai-chip ai-{{ r.status }}">{{ icon('magic' if r.status == 'ai' else ('check' if r.status == 'manual' else 'clock')) }}{{ status_label }}{% if r.model %} · {{ r.model }}{% endif %}</span>
     {% if r.featured %}<span class="feat-chip">{{ icon('thumbtack') }}{{ t('featured') }}</span>{% endif %}
