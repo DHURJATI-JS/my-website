@@ -240,10 +240,12 @@
         <label class="check mt-0"><input type="checkbox" id="includeForks"{% if state.settings.include_forks %} checked{% endif %}> Show forked repositories on the site</label>
       </div>
       <p class="hint">Change a group to override the AI (your choice is locked). <b>Other</b> is only ever chosen by you — the AI never puts a project there. <b>Featured</b> pins a project to the top;
-        <b>Hidden</b> removes it from the public site. ↺ forgets the AI result so the repo counts as new again.</p>
+        <b>Hidden</b> removes it from the public site. ↺ forgets the AI result so the repo counts as new again.
+        <b>★ README</b> picks the one project shown big at the top of your GitHub profile README (click it again to remove it).</p>
+      <p class="hint" id="readmeStatus" aria-live="polite"></p>
       <div class="table-wrap">
         <table class="admin-table">
-          <thead><tr><th scope="col">Repository</th><th scope="col">Group</th><th scope="col">Source</th><th scope="col">Featured</th><th scope="col">Hidden</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+          <thead><tr><th scope="col">Repository</th><th scope="col">Group</th><th scope="col">Source</th><th scope="col">Featured</th><th scope="col">Hidden</th><th scope="col">README</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
           <tbody id="repoRows"></tbody>
         </table>
       </div>

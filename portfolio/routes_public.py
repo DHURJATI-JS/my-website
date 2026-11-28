@@ -40,9 +40,12 @@ def disclaimer(request: Request):
 @router.get("/api/projects")
 @limiter.limit(rl.API)
 def api_projects(request: Request, lang: str = "en"):
-    """All visible projects. ?lang=hi|mr|es|fr|de|ja|ru returns the AI text translated where available."""
+    """All visible projects. ?lang=hi|mr|es|fr|de|ja|ru returns the AI text translated where available.
+    readme_featured: the project picked in /admin for the top of the GitHub profile README
+    (null = never picked, "" = none); the README's GitHub workflow reads it from here."""
     lang = lang if lang in LANGS else "en"
-    data = {"synced_at": store.get().get("synced_at"), "lang": lang,
+    doc = store.get()
+    data = {"synced_at": doc.get("synced_at"), "lang": lang, "readme_featured": views.readme_featured(doc),
             "projects": [views.public_card(c) for c in views.cards_for(lang)]}
     return JSONResponse(data, headers={"Cache-Control": _PUBLIC_CACHE})
 

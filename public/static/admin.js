@@ -96,6 +96,52 @@
     return h('label', { class: 'switch' }, input, h('span'));
   }
 
+  /* The one project shown big at the top of the GitHub profile README. The README's own GitHub
+     workflow reads the choice from /api/projects (no token on this site). */
+  const readmeStatus = $('#readmeStatus');
+  const readmeChoice = () => (state.settings || {}).readme_featured;
+  const sameName = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+  const offSite = (repo) => repo.gone || repo.hidden || (repo.fork && !(state.settings || {}).include_forks);
+  function renderReadmeStatus() {
+    if (!readmeStatus) return;
+    const current = readmeChoice();
+    const repo = typeof current === 'string' && current ? state.repos.find((r) => sameName(r.name, current)) : null;
+    let parts;
+    if (current == null) {
+      parts = ['★ README: nothing picked yet, so your GitHub README keeps the featured project it has now.'];
+    } else if (!current) {
+      parts = ['★ README: no featured project. Your GitHub README shows none.'];
+    } else if (!repo || offSite(repo)) {
+      parts = ['★ README: ', h('b', { text: repo ? repo.title : current }),
+        ' is not visible on the site, so your GitHub README shows no featured project until you show it again or pick another.'];
+    } else {
+      parts = ['★ README: ', h('b', { text: repo.title }),
+        ' is featured at the top of your GitHub README. GitHub picks up a change within about 15 minutes.'];
+    }
+    readmeStatus.replaceChildren(...parts);
+  }
+  async function setReadmeFeatured(name, btn) {
+    if (!name && !window.confirm('Stop featuring this project at the top of your GitHub README?')) return;
+    if (btn) { btn.disabled = true; }
+    try {
+      const data = await api('/admin/api/readme-featured', { method: 'POST', body: { name } });
+      state.settings = data.settings;
+      renderRows();
+      toast(data.readme_featured ? `${data.readme_featured} will be featured on your GitHub README` : 'No featured project on your GitHub README');
+    } catch (e) { toast(e.message, 'err'); if (btn) btn.disabled = false; }
+  }
+  function readmeStar(repo) {
+    const on = sameName(readmeChoice(), repo.name);
+    const btn = h('button', {
+      class: 'icon-btn' + (on ? ' is-on' : ''), type: 'button', 'aria-pressed': on ? 'true' : 'false',
+      title: on ? 'Featured on your GitHub README · click to remove' : 'Feature this on your GitHub README',
+      'aria-label': (on ? 'Stop featuring ' : 'Feature ') + repo.name + ' on the GitHub README',
+      disabled: offSite(repo) && !on,
+    }, icon('star'));
+    btn.addEventListener('click', () => setReadmeFeatured(on ? '' : repo.name, btn));
+    return btn;
+  }
+
   function rowFor(repo) {
     const flags = [];
     if (repo.fork) flags.push('fork');
@@ -133,6 +179,7 @@
       h('td', {}, source),
       h('td', {}, toggle(repo, 'featured')),
       h('td', {}, toggle(repo, 'hidden')),
+      h('td', {}, readmeStar(repo)),
       h('td', {}, h('div', { class: 'row-actions' }, run, reset, gh)));
   }
 
@@ -147,11 +194,40 @@
       h('span', { text: `${n('pending')} pending` }),
       h('span', { text: Object.keys(LABEL).map((key) => `${live.filter((r) => r.category === key).length} ${key}`).join(' · ') }));
   }
+  /* Lazy loading: the table starts with ROW_BATCH rows and adds the next batch as you scroll to its
+     end (or with "Show more"). Counts and every action still cover all repositories. */
+  const ROW_BATCH = 30;
+  let rendered = 0; // rows of state.repos currently in the table (always the first ones)
+  const moreLeft = h('b');
+  const moreBtn = h('button', { class: 'btn-glass btn-sm', type: 'button' }, h('span', { text: 'Show more' }), moreLeft);
+  const moreRow = h('tr', { class: 'rows-more' }, h('td', { colspan: '7' }, moreBtn));
+  const rowsIO = 'IntersectionObserver' in window
+    ? new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting)) appendRows(ROW_BATCH); },
+      { rootMargin: '0px 0px 300px 0px' })
+    : null;
+  moreBtn.addEventListener('click', () => appendRows(ROW_BATCH));
+  function appendRows(count) {
+    const next = state.repos.slice(rendered, rendered + count);
+    moreRow.remove();
+    rows.append(...next.map(rowFor));
+    rendered += next.length;
+    const rest = state.repos.length - rendered;
+    if (rowsIO) rowsIO.unobserve(moreRow);
+    if (rest > 0) {
+      moreLeft.textContent = ` ${rest}`;
+      rows.append(moreRow);
+      if (rowsIO) rowsIO.observe(moreRow); // observing again re-checks: keeps filling while it is in view
+    }
+  }
   function renderRows() {
     refreshLabels();
-    rows.replaceChildren(...state.repos.map(rowFor));
-    if (!state.repos.length) rows.append(h('tr', {}, h('td', { colspan: '6', text: 'No repositories yet — click “Sync now”.' })));
+    const keep = Math.max(ROW_BATCH, rendered); // a re-render (e.g. after a sync) keeps what you had loaded
+    rendered = 0;
+    rows.replaceChildren();
+    if (state.repos.length) appendRows(keep);
+    else rows.append(h('tr', {}, h('td', { colspan: '7', text: 'No repositories yet — click “Sync now”.' })));
     renderCounts();
+    renderReadmeStatus();
   }
   function renderWarnings() {
     $('#warnings').replaceChildren(...(state.warnings || []).map((w) => h('div', { class: 'admin-alert' }, icon('warning'), h('span', { text: w }))));
@@ -161,9 +237,11 @@
     const index = state.repos.findIndex((r) => r.name === repo.name);
     if (index >= 0) state.repos[index] = repo; else state.repos.push(repo);
     const old = rows.querySelector(`tr[data-name="${CSS.escape(repo.name)}"]`);
-    const fresh = rowFor(repo);
-    if (old) old.replaceWith(fresh); else rows.append(fresh);
+    if (old) old.replaceWith(rowFor(repo));
+    else if (index < 0) { renderRows(); return; } // a brand-new repo: re-render in order
+    // else: that row isn't loaded yet (lazy loading) - it shows the new data when you scroll to it
     renderCounts();
+    renderReadmeStatus();
   }
 
   /* --------------------------------------------- the 3 AI/sync actions */

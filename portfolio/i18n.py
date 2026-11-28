@@ -46,7 +46,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "search": "Search projects, tech or features…", "sort": "Sort", "sort_updated": "Recently updated",
         "sort_stars": "Most stars", "sort_name": "Name (A–Z)", "featured": "Featured",
         "view_details": "View details", "no_description": "No description yet.",
-        "no_results": "No projects match your search.",
+        "no_results": "No projects match your search.", "show_more": "Show more",
         "ai_summary": "AI summary", "ai_pending": "Awaiting AI review", "curated": "Curated",
         "confidence": "Confidence", "tab_overview": "Overview", "tab_readme": "README",
         "problem": "Problem it solves", "key_points": "Key points", "tech_stack": "Tech stack",
@@ -119,7 +119,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "search": "प्रोजेक्ट, तकनीक या फ़ीचर खोजें…", "sort": "क्रम", "sort_updated": "हाल ही में अपडेट",
         "sort_stars": "सबसे ज़्यादा स्टार्स", "sort_name": "नाम (A–Z)", "featured": "विशेष",
         "view_details": "विवरण देखें", "no_description": "अभी कोई विवरण नहीं।",
-        "no_results": "आपकी खोज से कोई प्रोजेक्ट मेल नहीं खाता।",
+        "no_results": "आपकी खोज से कोई प्रोजेक्ट मेल नहीं खाता।", "show_more": "और दिखाएँ",
         "ai_summary": "AI सारांश", "ai_pending": "AI समीक्षा बाकी", "curated": "चयनित",
         "confidence": "विश्वास", "tab_overview": "अवलोकन", "tab_readme": "README",
         "problem": "यह कौन-सी समस्या हल करता है", "key_points": "मुख्य बिंदु", "tech_stack": "टेक स्टैक",
@@ -190,7 +190,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "search": "प्रकल्प, तंत्रज्ञान किंवा फीचर शोधा…", "sort": "क्रम", "sort_updated": "अलीकडे अपडेट केलेले",
         "sort_stars": "सर्वाधिक स्टार्स", "sort_name": "नाव (A–Z)", "featured": "विशेष",
         "view_details": "तपशील पाहा", "no_description": "अद्याप वर्णन नाही.",
-        "no_results": "तुमच्या शोधाशी जुळणारा प्रकल्प नाही.",
+        "no_results": "तुमच्या शोधाशी जुळणारा प्रकल्प नाही.", "show_more": "आणखी दाखवा",
         "ai_summary": "AI सारांश", "ai_pending": "AI पुनरावलोकन बाकी", "curated": "निवडलेले",
         "confidence": "खात्री", "tab_overview": "आढावा", "tab_readme": "README",
         "problem": "कोणती समस्या सोडवतो", "key_points": "मुख्य मुद्दे", "tech_stack": "टेक स्टॅक",
@@ -262,7 +262,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "search": "Busca proyectos, tecnologías o funciones…", "sort": "Ordenar",
         "sort_updated": "Actualizados recientemente", "sort_stars": "Más estrellas", "sort_name": "Nombre (A–Z)",
         "featured": "Destacado", "view_details": "Ver detalles", "no_description": "Aún sin descripción.",
-        "no_results": "Ningún proyecto coincide con tu búsqueda.",
+        "no_results": "Ningún proyecto coincide con tu búsqueda.", "show_more": "Mostrar más",
         "ai_summary": "Resumen IA", "ai_pending": "Pendiente de revisión IA", "curated": "Seleccionado",
         "confidence": "Confianza", "tab_overview": "Resumen", "tab_readme": "README",
         "problem": "Problema que resuelve", "key_points": "Puntos clave", "tech_stack": "Tecnologías",
@@ -337,7 +337,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "search": "Rechercher un projet, une techno, une fonctionnalité…", "sort": "Trier",
         "sort_updated": "Mis à jour récemment", "sort_stars": "Plus d'étoiles", "sort_name": "Nom (A–Z)",
         "featured": "À la une", "view_details": "Voir les détails", "no_description": "Pas encore de description.",
-        "no_results": "Aucun projet ne correspond à votre recherche.",
+        "no_results": "Aucun projet ne correspond à votre recherche.", "show_more": "Afficher plus",
         "ai_summary": "Résumé IA", "ai_pending": "En attente d'analyse IA", "curated": "Sélection",
         "confidence": "Confiance", "tab_overview": "Aperçu", "tab_readme": "README",
         "problem": "Problème résolu", "key_points": "Points clés", "tech_stack": "Technologies",
@@ -410,7 +410,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "search": "Projekte, Technologien oder Funktionen suchen…", "sort": "Sortieren",
         "sort_updated": "Zuletzt aktualisiert", "sort_stars": "Meiste Sterne", "sort_name": "Name (A–Z)",
         "featured": "Empfohlen", "view_details": "Details ansehen", "no_description": "Noch keine Beschreibung.",
-        "no_results": "Keine Projekte passen zu deiner Suche.",
+        "no_results": "Keine Projekte passen zu deiner Suche.", "show_more": "Mehr anzeigen",
         "ai_summary": "KI-Zusammenfassung", "ai_pending": "Wartet auf KI-Analyse", "curated": "Kuratiert",
         "confidence": "Sicherheit", "tab_overview": "Überblick", "tab_readme": "README",
         "problem": "Gelöstes Problem", "key_points": "Wichtigste Punkte", "tech_stack": "Tech-Stack",
@@ -481,7 +481,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "search": "プロジェクト・技術・機能を検索…", "sort": "並び替え", "sort_updated": "最近更新",
         "sort_stars": "スターが多い順", "sort_name": "名前 (A–Z)", "featured": "注目",
         "view_details": "詳細を見る", "no_description": "説明はまだありません。",
-        "no_results": "検索に一致するプロジェクトはありません。",
+        "no_results": "検索に一致するプロジェクトはありません。", "show_more": "もっと見る",
         "ai_summary": "AI 要約", "ai_pending": "AI 分析待ち", "curated": "選定済み",
         "confidence": "確信度", "tab_overview": "概要", "tab_readme": "README",
         "problem": "解決する課題", "key_points": "主なポイント", "tech_stack": "技術スタック",
@@ -549,7 +549,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "search": "Поиск по проектам, технологиям или функциям…", "sort": "Сортировка", "sort_updated": "Недавно обновлённые",
         "sort_stars": "Больше всего звёзд", "sort_name": "Название (А–Я)", "featured": "Избранное",
         "view_details": "Подробнее", "no_description": "Описания пока нет.",
-        "no_results": "Ни один проект не подходит под запрос.",
+        "no_results": "Ни один проект не подходит под запрос.", "show_more": "Показать ещё",
         "ai_summary": "Сводка ИИ", "ai_pending": "Ожидает проверки ИИ", "curated": "Выбрано вручную",
         "confidence": "Уверенность", "tab_overview": "Обзор", "tab_readme": "README",
         "problem": "Какую проблему решает", "key_points": "Главное", "tech_stack": "Технологии",
@@ -607,7 +607,7 @@ STRINGS: dict[str, dict[str, str]] = {
 
 # Strings the browser script needs.
 JS_KEYS = ("copied", "loading_readme", "readme_missing", "readme_error", "close", "occ_close",
-           "ai_online", "ai_offline", "ai_checking", "ai_failsafe")
+           "ai_online", "ai_offline", "ai_checking", "ai_failsafe", "show_more")
 
 
 def resolve_lang(request: Request) -> tuple[str, bool]:

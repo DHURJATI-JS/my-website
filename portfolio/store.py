@@ -67,7 +67,9 @@ def empty_doc() -> dict[str, Any]:
         "updated_at": None,
         "synced_at": None,
         "profile": default_profile(),
-        "settings": {"hidden": [], "featured": [], "include_forks": False},
+        # readme_featured: the one project shown big at the top of the GitHub profile README
+        # (None = never chosen in /admin, so the README keeps what it has; "" = none).
+        "settings": {"hidden": [], "featured": [], "include_forks": False, "readme_featured": None},
         # Research-grade projects: off until switched on in /admin (see portfolio/research.py).
         "research": {"enabled": False, "entries": []},
         "github": {

@@ -181,6 +181,61 @@
       stars: (a, b) => Number(b.dataset.stars) - Number(a.dataset.stars) || byUpdated(a, b),
       name: (a, b) => a.dataset.name.localeCompare(b.dataset.name, lang, { sensitivity: 'base' }),
     };
+    /* Lazy loading: each group first shows BATCH of its matching cards; the next batch appears as you
+       scroll to the end of the group (or with "Show more"). Cards not shown yet don't load their pictures.
+       Search, tabs and sorting always work on ALL projects, not just the ones shown so far. */
+    const BATCH = 6;
+    const lazy = new Map(); // group -> { cards: matching cards in order, limit, wrap, left }
+    const lazyIO = 'IntersectionObserver' in window
+      ? new IntersectionObserver((entries) => entries.forEach((entry) => {
+        if (entry.isIntersecting) showMore(entry.target.closest('.group'));
+      }), { rootMargin: '0px 0px 320px 0px' })
+      : null;
+    function lazyFor(group) {
+      let entry = lazy.get(group);
+      if (!entry) {
+        const wrap = document.createElement('div');
+        wrap.className = 'cards-more';
+        wrap.hidden = true;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn-glass btn-sm';
+        const label = document.createElement('span');
+        label.textContent = I18N.show_more || 'Show more';
+        const left = document.createElement('b');
+        btn.append(label, left);
+        btn.addEventListener('click', () => showMore(group));
+        wrap.append(btn);
+        $('.cards', group).after(wrap);
+        entry = { cards: [], limit: BATCH, wrap, left };
+        lazy.set(group, entry);
+      }
+      return entry;
+    }
+    function paintGroup(group) {
+      const entry = lazyFor(group);
+      entry.cards.forEach((card, i) => { card.hidden = i >= entry.limit; });
+      const rest = Math.max(0, entry.cards.length - entry.limit);
+      entry.left.textContent = rest;
+      entry.wrap.hidden = rest === 0;
+      if (lazyIO) {
+        lazyIO.unobserve(entry.wrap);
+        if (rest) lazyIO.observe(entry.wrap); // observing again re-checks: keeps filling while it is in view
+      }
+    }
+    function showMore(group) {
+      const entry = group && lazy.get(group);
+      if (!entry || entry.limit >= entry.cards.length) return;
+      entry.limit += BATCH;
+      paintGroup(group);
+    }
+    // First paint keeps the page's own order (featured first) and only applies the batches.
+    groups.forEach((group) => {
+      const entry = lazyFor(group);
+      entry.cards = $$('.pcard', $('.cards', group));
+      paintGroup(group);
+    });
+
     const apply = () => {
       const terms = state.q.toLowerCase().split(/\s+/).filter(Boolean);
       let shown = 0;
@@ -190,12 +245,13 @@
         cards.sort((a, b) => Number(b.dataset.featured) - Number(a.dataset.featured) || compare[state.sort](a, b))
           .forEach((card) => list.appendChild(card));
         const inCategory = state.cat === 'all' || state.cat === group.dataset.group;
-        let n = 0;
-        cards.forEach((card) => {
-          const ok = inCategory && (!terms.length || terms.every((t) => haystack(card).includes(t)));
-          card.hidden = !ok;
-          if (ok) { n += 1; card.classList.add('in'); }
-        });
+        const entry = lazyFor(group);
+        entry.cards = cards.filter((card) => inCategory && (!terms.length || terms.every((t) => haystack(card).includes(t))));
+        entry.limit = BATCH;
+        cards.forEach((card) => { card.hidden = true; });
+        entry.cards.slice(0, BATCH).forEach((card) => card.classList.add('in'));
+        paintGroup(group);
+        const n = entry.cards.length;
         group.hidden = n === 0;
         const count = $('.group-count', group);
         if (count) count.textContent = n;

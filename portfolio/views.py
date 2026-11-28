@@ -142,6 +142,20 @@ def visible_entries(doc: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     ]
 
 
+def readme_featured(doc: dict[str, Any]) -> str | None:
+    """The project featured at the top of the GitHub profile README (picked in /admin).
+
+    None = never picked, so the README keeps the block it already has; "" = no featured project.
+    A project that is hidden, deleted or no longer public here is never published (gives "")."""
+    value = doc["settings"].get("readme_featured")
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    visible = {entry.get("name", "").lower(): entry.get("name", "") for _, entry in visible_entries(doc)}
+    return visible.get(value.strip().lower(), "")
+
+
 _banner_cache: dict[tuple, str] = {}
 
 

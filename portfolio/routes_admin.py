@@ -223,6 +223,10 @@ class SettingsBody(BaseModel):
     include_forks: bool
 
 
+class ReadmeFeaturedBody(BaseModel):
+    name: str = Field("", max_length=120)  # "" = no featured project on the GitHub README
+
+
 ShortText = Annotated[str, Field(max_length=40)]
 
 
@@ -385,6 +389,33 @@ def api_visibility(request: Request, body: VisibilityBody, session: dict = Depen
 def api_settings(request: Request, body: SettingsBody, session: dict = Depends(require_csrf)):
     store.mutate(lambda doc: doc["settings"].update(include_forks=body.include_forks))
     return views.admin_state()
+
+
+@router.post("/api/readme-featured")
+@limiter.limit(rl.ADMIN)
+def api_readme_featured(request: Request, body: ReadmeFeaturedBody, session: dict = Depends(require_csrf)):
+    """Pick the one project shown big at the top of the GitHub profile README ("" = none).
+    Only a project visible on the site can be picked. The README's own GitHub workflow reads the
+    choice from /api/projects; this site never calls GitHub for it and needs no extra token."""
+    wanted = body.name.strip().lower()
+
+    def apply(doc: dict) -> str:
+        if not wanted:
+            doc["settings"]["readme_featured"] = ""
+            return ""
+        visible = {e.get("name", "").lower(): e.get("name", "") for _, e in views.visible_entries(doc)}
+        if wanted not in visible:
+            raise ValueError("Only a project that is visible on the site can be featured on the README")
+        doc["settings"]["readme_featured"] = visible[wanted]
+        return visible[wanted]
+
+    try:
+        chosen = store.mutate(apply)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except StoreError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not save the JSON: {exc}") from exc
+    return {"readme_featured": chosen, "settings": store.get()["settings"]}
 
 
 @router.post("/api/profile")

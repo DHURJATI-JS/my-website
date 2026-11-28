@@ -55,6 +55,7 @@ tech stack, audience). Once saved, a repo's group is **permanent**.
 | **2 · Categorise NEW repos only** *(recommended)* | Sync, then the AI reads only repos **not yet in the JSON**. Old groups stay. |
 | **3 · Re-verify & re-categorise ALL** | Sync, then the AI re-reads every README (optionally overriding your manual choices). |
 | Per repo | Change the group (locks it) — **Social impact**, **Industry & startup**, **Other** or one of your own categories (Other and your own are only ever chosen by you, never by the AI) — **Featured**, **Hidden**, re-run AI, or “forget” the result (→ new again). |
+| ★ README | One click picks the project shown big at the top of your GitHub profile README (click it again for none). The README's own GitHub workflow reads the choice from `/api/projects` every 15 minutes and rebuilds the README when anything changed — so every sync reaches the README too. This site never calls GitHub for it and needs no extra token. Only a project visible on the site can be picked; if it is later hidden or made private, the README drops it. |
 | Card pictures | Each project card shows the repo's GitHub **social preview** (read during sync; one GraphQL call with `GITHUB_TOKEN`, else from the repo page), else the first real picture in its README, else a **generated card** (`/og/<repo>.svg`: name, summary, tech, group colour). |
 | Categories | Add your own groups with an icon and a colour (a ready-made **Games** group is included), reorder, rename or delete them (their projects move to Other). |
 | Translations | The AI translates each project's title, summary and key points (and your headline/biography) into every site language, once, and saves it. New or changed projects are translated by the daily sync; **Translate missing now** does it on demand. |
@@ -170,7 +171,8 @@ Start Docker Desktop first.
   English, and the language menu shows every language's English name too.
 
 ## Public JSON API
-`/api/projects` · `/api/projects/{name}` (incl. README HTML; both take `?lang=hi|mr|es|fr|de|ja|ru` for the
+`/api/projects` (also `readme_featured`: the ★ README pick — `null` = never picked, `""` = none) ·
+`/api/projects/{name}` (incl. README HTML; both take `?lang=hi|mr|es|fr|de|ja|ru` for the
 AI-translated text) · `/api/research` (research-grade projects; empty while
 switched off) · `/api/profile` · `/api/profile-readme` · `/api/ai-status` · `/healthz`
 
